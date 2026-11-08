@@ -8,6 +8,8 @@ only used when it points to exactly one row (the list contains a few same-name/s
 ambiguous rows are reported, not guessed. For each of E-Mail, E-Mail-Status, LinkedIn,
 Ansprechpartner the v10 value is copied when the v10 cell is non-empty (this deliberately
 overwrites: v10 is the hand-checked source). Empty v10 cells never clear a value.
+"Allgemeine E-Mail" (generic company address, only in v10) is copied the same way; the column is
+created in the output if the base workbook lacks it.
 Other columns, other tabs and the scoring are untouched (contact fields carry no points).
 Unmatched v10 rows are reported, not added.
 
@@ -24,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import DATA, norm_domain, norm_name, plz_of  # noqa: E402
 
 HV = "Hausverwaltungen"
-COLS = ["E-Mail", "E-Mail-Status", "LinkedIn", "Ansprechpartner"]
+COLS = ["E-Mail", "E-Mail-Status", "LinkedIn", "Ansprechpartner", "Allgemeine E-Mail"]
 
 
 def header_map(ws):
@@ -54,9 +56,13 @@ def main():
     wb = openpyxl.load_workbook(a.base)
     ws = wb[HV]
     hm = header_map(ws)
+    from copy import copy
     for c in COLS:
-        if c not in hm:
-            sys.exit(f"Spalte {c} fehlt in {a.base.name}")
+        if c not in hm:  # e.g. "Allgemeine E-Mail" only exists in the hand-edited file
+            tmpl = ws.cell(1, ws.max_column)
+            cell = ws.cell(1, ws.max_column + 1, c)
+            cell.font, cell.fill, cell.alignment = copy(tmpl.font), copy(tmpl.fill), copy(tmpl.alignment)
+            hm[c] = cell.column
     idx = {}
     for r in range(2, ws.max_row + 1):
         if ws.cell(r, hm["Firma"]).value:

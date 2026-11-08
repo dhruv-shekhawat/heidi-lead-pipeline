@@ -251,6 +251,9 @@ def main():
             heidi_hits.append((cell(r, "Firma").value, res["heidi"]))
         cell(r, "Recherchetiefe").value = "B+ (automatisch)"
 
+    from add_sources import merge_same_name_rows  # renames can produce same-name duplicates
+    print("Dubletten nach Umbenennung:")
+    merge_same_name_rows(ws)
     wb.save(a.out)
     with open(a.review, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=["Firma", "Website", "Einheiten_auto", "Phrase", "URL", "Freigabe"])

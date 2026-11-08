@@ -19,7 +19,7 @@ import openpyxl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import DATA, norm_name, plz_of  # noqa: E402
 
-TRACK = ["Einheiten", "Einheiten Berlin", "Ansprechpartner"]
+TRACK = ["Einheiten", "Einheiten Berlin", "Ansprechpartner", "E-Mail", "E-Mail-Status", "Allgemeine E-Mail"]
 
 
 def rows_of(ws):
@@ -69,7 +69,10 @@ def main():
             if not old_by.get(k) and rec.get("Name alt"):
                 k = key(rec, "Name alt")
             if old_by.get(k):
-                pairs.append((old_by[k].pop(0), rec))
+                # same key several times (duplicates): prefer the old row with the same website
+                cand = old_by[k]
+                i = next((j for j, o in enumerate(cand) if o.get("Website") and o.get("Website") == rec.get("Website")), 0)
+                pairs.append((cand.pop(i), rec))
             else:
                 new_rows.append(rec)
         removed = [r for lst in old_by.values() for r in lst]

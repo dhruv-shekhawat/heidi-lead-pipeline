@@ -3,8 +3,9 @@
 Cache: data/cache/<sha1>.json, one file per request. Key = sha1 of the URL
 (for POST requests the sorted form body is appended to the URL before hashing).
 Each entry stores url, final_url, status, content_type, text, error, fetched.
-Successful pages AND definitive failures (HTTP 4xx/5xx, robots disallow) are cached,
-so reruns and offline dry-runs reproduce the same result without network access.
+Successful pages AND definitive failures (HTTP 4xx, robots disallow) are cached, so reruns and
+offline dry-runs reproduce the same result without network access. Transient failures (timeouts,
+HTTP 5xx) are cached with "transient": true – online runs retry them, offline runs replay them.
 Set HEIDI_OFFLINE=1 to forbid network access entirely (cache misses -> FetchError).
 """
 import hashlib
@@ -135,8 +136,8 @@ def fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
     Raises Blocked on 403/429, FetchError otherwise. Uses cache first.
     """
     entry = cache_read(url, data)
-    if entry is not None:
-        entry["cached"] = True
+    if entry is not None and not (entry.get("transient") and not OFFLINE):
+        entry["cached"] = True  # transient failures are only replayed offline; online they are retried
         return _raise_for(entry)
     if OFFLINE:
         raise FetchError("offline: nicht im Cache")
@@ -153,7 +154,8 @@ def fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
         r = session.request(method, url, data=data, headers=headers, timeout=timeout,
                             allow_redirects=True)
     except requests.Timeout:
-        raise FetchError("Timeout")  # transient: not cached
+        cache_write(url, data, {"url": url, "status": 0, "error": "Timeout", "transient": True})
+        raise FetchError("Timeout")  # transient: retried online, replayed offline
     except requests.exceptions.SSLError:
         entry = {"url": url, "status": 0, "error": "SSL-Fehler"}
         cache_write(url, data, entry)
@@ -175,8 +177,10 @@ def fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
         if not r.encoding or r.encoding.lower() == "iso-8859-1":
             r.encoding = r.apparent_encoding
         entry["text"] = r.text
-    if r.status_code >= 500:
-        return _raise_for(entry)  # transient: not cached (429 IS cached: never re-hit a host that rate-limited us)
+    if r.status_code >= 500:  # transient: retried online, replayed offline (429 is cached for good)
+        entry["transient"] = True
+        cache_write(url, data, entry)
+        return _raise_for(entry)
     cache_write(url, data, entry)
     entry["cached"] = False
     return _raise_for(entry)

@@ -140,6 +140,67 @@ BERLIN_RX = re.compile(r"Berlin|Mitte|Charlottenburg|Wilmersdorf|Friedrichshain|
                        r"Dahlem|Grunewald|Friedenau|Schmargendorf|Britz|Rudow|Adlershof|Hohenschönhausen", re.I)
 
 
+SKIP_ON_MERGE = {"Punkte", "Prio", "Prio-Grund", "Anzahl Quellen", "Stand", "Batch", "Hinweis"}
+LIST_FIELDS = {"Quelle", "Quellen"}
+
+
+def merge_same_name_rows(ws, log=print):
+    """Merge Hausverwaltungen rows with the same normalised Firma + PLZ when they have at most one
+    distinct website (typically: light_enrich renamed a directory row to the name of an existing row).
+    Target = the row with the website. Empty target cells are filled; Quelle/Quellen are unioned;
+    any other differing value goes into the target's Hinweis. The other rows are deleted."""
+    hm = {c.value: c.column for c in ws[1] if c.value}
+    groups = {}
+    for r in range(2, ws.max_row + 1):
+        f = ws.cell(r, hm["Firma"]).value
+        if f:
+            groups.setdefault(f"{norm_name(f)}|{plz_of(ws.cell(r, hm['Bezirk/PLZ']).value)}", []).append(r)
+    to_delete, merged = [], []
+    for key, rows in groups.items():
+        if len(rows) < 2:
+            continue
+        doms = {norm_domain(ws.cell(r, hm["Website"]).value) for r in rows} - {""}
+        if len(doms) > 1:
+            log(f"   gleiche Firma+PLZ, verschiedene Websites – nicht zusammengeführt: {key} {sorted(doms)}")
+            continue
+        target = next((r for r in rows if ws.cell(r, hm["Website"]).value), rows[0])
+        for o in (r for r in rows if r != target):
+            notes = []
+            for col, ci in hm.items():
+                if col in SKIP_ON_MERGE:
+                    continue
+                tv, ov = ws.cell(target, ci).value, ws.cell(o, ci).value
+                if ov in (None, "") or tv == ov or str(ov).strip().lower() == "unbekannt":
+                    continue
+                if tv in (None, ""):
+                    ws.cell(target, ci).value = ov
+                elif col in LIST_FIELDS:
+                    parts = [x.strip() for x in re.split(r";", f"{tv};{ov}") if x.strip()]
+                    ws.cell(target, ci).value = "; ".join(dict.fromkeys(parts))
+                else:
+                    notes.append(f"{col}: {ov}")
+            oh = ws.cell(o, hm["Hinweis"]).value
+            if oh and oh != ws.cell(target, hm["Hinweis"]).value:
+                notes.append(f"Hinweis: {oh}")
+            note = "Dublette zusammengeführt (Zeile ohne Website)" + (": " + "; ".join(notes) if notes else "")
+            h = ws.cell(target, hm["Hinweis"]).value
+            ws.cell(target, hm["Hinweis"]).value = f"{h} | {note}" if h else note
+            to_delete.append(o)
+            merged.append((ws.cell(target, hm["Firma"]).value, key))
+        if "Anzahl Quellen" in hm:  # derived: recompute after Quelle was unioned
+            q = ws.cell(target, hm["Quelle"]).value
+            n = n_sources(q)
+            if any(ws.cell(target, hm[k]).value not in (None, "") for k in JACASA_COLS if k in hm) \
+                    and "jacasa" not in str(q or "").lower():
+                n += 1
+            ws.cell(target, hm["Anzahl Quellen"]).value = n
+    for r in sorted(to_delete, reverse=True):
+        ws.delete_rows(r)
+    for f, k in merged:
+        log(f"   Dublette zusammengeführt: {f} ({k.split('|')[1]})")
+    return merged
+
+
 def n_sources(quelle):
     return len({x.strip().lower() for x in re.split(r"[;,]", str(quelle or "")) if x.strip()})
 
@@ -156,6 +217,8 @@ def main():
 
     wb = openpyxl.load_workbook(a.inp)
     ws = wb[HV]
+    print("Dubletten-Prüfung (gleiche Firma + PLZ):")
+    merge_same_name_rows(ws)
     hm = ensure_cols(ws, NEW_COLS)
     style_row = ws.max_row
     cell = lambda r, k: ws.cell(r, hm[k])  # noqa: E731

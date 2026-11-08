@@ -4,7 +4,7 @@
   scrape_directories → scrape_jacasa → jacasa_union → fetch_details → merge → add_sources →
   light_enrich → extract_contacts → apply_review (--auto) → manual_fixes → score →
   [merge_contacts, optional: --contacts data/heidi_contacts_v10.xlsx] →
-  [hunter_enrich, optional: --hunter; uses Hunter.io credits, never in --dry-run] → diff → export
+  [hunter_enrich, optional: --hunter; uses Hunter.io credits; with --dry-run cache only] → diff → export
 
 Workbooks and the review CSV of a run go to --outdir (default data/run/), so the step
 deliverables (v3, v3c, v3d, v5, v6) and the hand-edited data/review_einheiten.csv are never
@@ -32,7 +32,7 @@ STEPS = ["scrape_directories", "scrape_jacasa", "jacasa_union", "fetch_details",
          "light_enrich", "extract_contacts", "apply_review", "manual_fixes", "score", "merge_contacts",
          "hunter_enrich", "diff", "export"]
 FETCH_STEPS = ["scrape_directories", "scrape_jacasa", "fetch_details"]
-WEB_STEPS = ["light_enrich", "extract_contacts"]
+WEB_STEPS = ["light_enrich", "extract_contacts", "hunter_enrich"]
 
 
 def main():
@@ -46,14 +46,14 @@ def main():
                          "without it merge_contacts is skipped")
     ap.add_argument("--hunter", action="store_true",
                     help="run hunter_enrich (Hunter.io, max 25 domain searches + 50 verifications; "
-                         "key from .env; skipped in --dry-run)")
+                         "key from .env; with --dry-run only cached responses, no credits)")
     ap.add_argument("--diff-old", type=Path, default=None,
                     help="default: previous data/heidi_latest.xlsx, else data/heidi_merged_v3.xlsx")
     a = ap.parse_args()
-    out = a.outdir
+    out = a.outdir.resolve()
     out.mkdir(parents=True, exist_ok=True)
     skip = set(a.skip) | (set(FETCH_STEPS) if a.dry_run else set()) | (set() if a.contacts else {"merge_contacts"}) \
-        | (set() if a.hunter and not a.dry_run else {"hunter_enrich"})
+        | (set() if a.hunter else {"hunter_enrich"})
     latest = DATA / "heidi_latest.xlsx"
     diff_old = a.diff_old or (latest if latest.exists() else DATA / "heidi_merged_v3.xlsx")
     if diff_old == latest and latest.exists():

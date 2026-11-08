@@ -29,7 +29,7 @@ LEAD_COLS = ["Prio", "Punkte", "Firma", "Website", "PLZ", "Bezirk", "Verwaltungs
              "Einheiten-Quelle", "Software", "Kundenportal", "Fernablesung erwähnt", "Messdienst",
              "Mitgliedschaft", "VDIV-Logo", "Google-Bewertung", "Anzahl Bewertungen", "Gruppe", "Makler auch",
              "Recherchetiefe", "Anzahl Quellen", "Prio-Grund", "Ansprechpartner", "Funktion", "E-Mail",
-             "E-Mail-Status", "LinkedIn", "Telefon", "Straße", "Hinweis", "Quellen", "Stand"]
+             "E-Mail-Status", "Allgemeine E-Mail", "LinkedIn", "Telefon", "Straße", "Hinweis", "Quellen", "Stand"]
 PRIO_ORDER = ["Enterprise", "A", "B", "C", "nicht bewertbar"]
 PRIO_FILL = {"Enterprise": "C9B6E4", "A": "A9D18E", "B": "FFE699", "C": "F8CBAD", "nicht bewertbar": "D9D9D9"}
 LONG = {"Prio-Grund", "Hinweis", "Quellen", "Einheiten-Quelle", "Grund / Hinweis", "Beschreibung", "Inhalt"}

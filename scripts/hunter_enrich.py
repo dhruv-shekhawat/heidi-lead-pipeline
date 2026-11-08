@@ -17,7 +17,9 @@ Per domain (Domain Search, limit 10):
   * only EMPTY E-Mail cells are written (an address already found on the website is kept); a row whose
     status is "verifiziert" is never touched
 Then Email Verifier on every address written here: valid → "verifiziert", invalid → "ungültig",
-accept_all → "unsicher (accept-all)", anything else → "unsicher (<status>)".
+accept_all → "unsicher (accept-all)", anything else → "unsicher (<status>)". An invalid address is
+removed from E-Mail and the status "ungültig (Hunter)" is kept; such rows are not retried.
+HEIDI_OFFLINE=1 (run_all --dry-run): cache only, no API calls, no credits.
 Every Hunter response is cached in data/cache/hunter_<sha1>.json (key stripped), so reruns cost nothing.
 HTTP 401/403/429 or a quota error stops the API calls (global rule); results so far are saved.
 
@@ -55,6 +57,10 @@ class Stop(Exception):
     pass
 
 
+class Offline(Exception):
+    pass
+
+
 # ------------------------------------------------------------------ API + cache
 def api_key():
     k = os.environ.get("HUNTER_API_KEY")
@@ -71,12 +77,19 @@ def api_key():
 QUOTA_HEADERS = {}
 
 
+def is_cached(endpoint, params):
+    ck = hashlib.sha1(f"{endpoint}?{json.dumps(params, sort_keys=True)}".encode()).hexdigest()
+    return (CACHE / f"hunter_{ck}.json").exists()
+
+
 def call(endpoint, params, key, use_cache=True):
     """GET Hunter endpoint; cache by endpoint+params WITHOUT the key. Returns (json, from_cache)."""
     ck = hashlib.sha1(f"{endpoint}?{json.dumps(params, sort_keys=True)}".encode()).hexdigest()
     path = CACHE / f"hunter_{ck}.json"
     if use_cache and path.exists():
         return json.loads(path.read_text(encoding="utf-8"))["body"], True
+    if OFFLINE:
+        raise Offline(endpoint)
     for attempt in range(4):
         r = requests.get(f"{API}/{endpoint}", params={**params, "api_key": key}, timeout=30)
         for h, v in r.headers.items():
@@ -104,6 +117,8 @@ def call(endpoint, params, key, use_cache=True):
 
 
 def account(key):
+    if OFFLINE:
+        return {"credits": 50.0, "searches": 25, "verifications": 50}, "offline"
     body, _ = call("account", {}, key, use_cache=False)
     req = body.get("data", {}).get("requests", {})
     return {k: req.get(k, {}).get("available", 0) - req.get(k, {}).get("used", 0)
@@ -165,8 +180,11 @@ def build(pattern, ansprechpartner, domain):
 
 def status_from(v):
     s = (v.get("data") or {}).get("status")
-    return {"valid": "verifiziert", "invalid": "ungültig", "accept_all": "unsicher (accept-all)"}.get(
+    return {"valid": "verifiziert", "invalid": "ungültig (Hunter)", "accept_all": "unsicher (accept-all)"}.get(
         s, f"unsicher ({s or 'unbekannt'})")
+
+
+OFFLINE = os.environ.get("HEIDI_OFFLINE") == "1"  # cache only, never call the API (run_all --dry-run)
 
 
 # ------------------------------------------------------------------ main
@@ -186,7 +204,7 @@ def main():
         sys.exit(f"Refusing to write {a.out}")
     if not a.inp.exists():
         sys.exit(f"Eingabe fehlt: {a.inp}")
-    key = api_key()
+    key = "" if OFFLINE else api_key()
 
     wb = openpyxl.load_workbook(a.inp)
     ws = wb[HV]
@@ -212,9 +230,11 @@ def main():
             targets.append((r, dom, prio))
 
     left, reset = account(key)
-    n_dom = min(a.max_domains, len(targets), int(left["searches"]), int(left["credits"]))
-    print(f"Hunter-Kontingent vor dem Lauf: {left} (Reset {reset}) → Domain-Suchen in diesem Lauf: {n_dom} "
-          f"von {len(targets)} Kandidaten (max {a.max_domains})")
+    sel = targets[:a.max_domains]
+    n_cached = sum(is_cached("domain-search", {"domain": d, "limit": 10}) for _, d, _ in sel)
+    budget = min(int(left["searches"]), int(left["credits"]))  # only uncached searches cost credits
+    print(f"Hunter-Kontingent vor dem Lauf: {left} (Reset {reset}) → {len(sel)} von {len(targets)} Kandidaten "
+          f"(max {a.max_domains}), davon {n_cached} aus Cache, {len(sel) - n_cached} neu (Budget {budget})")
     if a.plan:
         for r, dom, prio in targets[:a.max_domains]:
             print(f"  {prio:10s} {cell(r, 'Punkte').value:>3}  {dom:35s} {cell(r, 'Firma').value} | "
@@ -225,8 +245,17 @@ def main():
                  "unsicher": 0} for p in PRIOS}
     written, stopped = [], None
     try:
-        for r, dom, prio in targets[:n_dom]:
-            body, cached = call("domain-search", {"domain": dom, "limit": 10}, key)
+        for r, dom, prio in sel:
+            if not is_cached("domain-search", {"domain": dom, "limit": 10}):
+                if budget <= 0:
+                    print(f"  Kontingent erschöpft – {dom} nicht gesucht")
+                    continue
+                budget -= 1
+            try:
+                body, cached = call("domain-search", {"domain": dom, "limit": 10}, key)
+            except Offline:
+                print(f"  offline: {dom} nicht im Cache – übersprungen")
+                continue
             d = body.get("data") or {}
             stats[prio]["Domains"] += 1
             pattern = d.get("pattern")
@@ -240,8 +269,8 @@ def main():
                     f"{p.get('first_name') or ''} {p.get('last_name') or ''} ({p.get('position') or '–'}) "
                     f"{p.get('value')} {p.get('confidence')}%".strip() for p in people)
             status = str(cell(r, "E-Mail-Status").value or "")
-            if status.startswith("verifiziert") or cell(r, "E-Mail").value:
-                continue  # never overwrite a verified (or any existing) address
+            if status.startswith("verifiziert") or status.startswith("ungültig") or cell(r, "E-Mail").value:
+                continue  # never overwrite a verified (or any existing) address; don't retry an invalid one
             ap_name = cell(r, "Ansprechpartner").value
             if not ap_name:
                 continue
@@ -258,11 +287,23 @@ def main():
                 stats[prio]["E-Mails geschrieben"] += 1
                 written.append((r, addr, prio))
         left, _ = account(key)
-        n_ver = min(a.max_verifications, len(written), int(left["verifications"]), int(left["credits"] * 2))
+        vbudget = min(int(left["verifications"]), int(left["credits"] * 2))
+        n_ver = min(a.max_verifications, len(written))
         for r, addr, prio in written[:n_ver]:
-            v, _ = call("email-verifier", {"email": addr}, key)
+            if not is_cached("email-verifier", {"email": addr}):
+                if vbudget <= 0:
+                    print(f"  Kontingent erschöpft – {addr} nicht verifiziert")
+                    continue
+                vbudget -= 1
+            try:
+                v, _ = call("email-verifier", {"email": addr}, key)
+            except Offline:
+                print(f"  offline: Verifizierung {addr} nicht im Cache")
+                continue
             st = status_from(v)
             cell(r, "E-Mail-Status").value = st
+            if st.startswith("ungültig"):
+                cell(r, "E-Mail").value = None  # keep the check visible in the status, drop the address
             stats[prio][st.split(" ")[0]] += 1
         if len(written) > n_ver:
             print(f"Hinweis: {len(written) - n_ver} geschriebene Adressen nicht verifiziert (Kontingent)")
@@ -282,7 +323,8 @@ def main():
     print(f"\nKontingent-Header aus den Antworten: {QUOTA_HEADERS or 'keine gesendet'}")
     try:
         left, reset = account(key)
-        print(f"Restkontingent laut /v2/account: {left} (Reset {reset})")
+        print(f"Restkontingent laut /v2/account: {left} (Reset {reset})" if not OFFLINE
+              else "Restkontingent: offline (nur Cache, keine Credits verbraucht)")
     except (Stop, requests.RequestException) as e:
         print(f"Restkontingent nicht abrufbar: {e}")
     print(f"Geschrieben: {a.out}")
