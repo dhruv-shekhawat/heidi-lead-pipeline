@@ -15,9 +15,11 @@ Per row: fetch homepage + Impressum (1 s delay per host, 10 s timeout, robots.tx
   text (common.page_text: incl. <template>/<noscript> slides, JSON-LD, alt/title and data-* text).
 * Kundenportal "ja" also for app-store links, app./portal./kunden. subdomains of the own domain
   and a named "Mieter-App".
-* Exclusion: homepage <title> or Impressum names Ferienwohnung/Gästehaus/Pension/Hotel/Apartments
-  and neither names Hausverwaltung/Immobilienverwaltung -> Typ "ausschließen", row moved to the Log
-  (Bereich "ausgeschlossen") with the reason.
+* Exclusion: homepage <title> or Impressum (homepage text if there is no Impressum page) names
+  Ferienwohnung/Ferienhaus/Ferienvermietung/Gästehaus/Pension/Hotel and neither names
+  Hausverwaltung/Immobilienverwaltung -> Typ "ausschließen", row moved to the Log (Bereich
+  "ausgeschlossen") with the reason. In homepage body text "Hotel" does not count (hotels are named
+  there as references). "Apartments" alone only adds Hinweis "prüfen: Apartments".
 
 Usage: python3 scripts/light_enrich.py [--in …] [--out …] [--review …] [--workers 8]
 """
@@ -68,7 +70,10 @@ APP_STORE = re.compile(r"^https?://(apps\.apple\.com|itunes\.apple\.com|play\.go
 PORTAL_SUB = ("app", "portal", "kunden")  # app./portal./kunden. subdomain of the firm's own domain
 MIETER_APP = re.compile(r"\bMieter[-\s]?App\b", re.I)
 # exclusion: lodging business, not a property manager (homepage <title> + Impressum text)
-LODGING_RX = re.compile(r"Ferienwohnung(?:en)?|Gästehaus|\bPension\b|\bHotels?\b|\bApartments\b", re.I)
+LODGING_RX = re.compile(r"Ferienwohnung(?:en)?|Ferienhaus|Ferienvermietung|Gästehaus|\bPension\b|\bHotels?\b", re.I)
+# homepage body text (fallback without Impressum) often names hotels as references/neighbours: no Hotel there
+LODGING_BODY_RX = re.compile(r"Ferienwohnung(?:en)?|Ferienhaus|Ferienvermietung|Gästehaus|\bPension\b", re.I)
+APARTMENTS_RX = re.compile(r"\bApartments\b", re.I)  # weaker signal (also serviced/business living): flag only
 HV_RX = re.compile(r"Hausverwaltung|Immobilienverwaltung", re.I)
 
 
@@ -130,7 +135,7 @@ def einheiten_candidates(text, plz_set):
 def analyse(row):
     """Network + parsing for one row (runs in a worker thread). Returns dict of findings."""
     res = {"r": row["r"], "status": None, "found": {}, "einheiten": [], "firma_cand": None,
-           "heidi": [], "imp_url": None, "exclude": None, "exclude_src": None}
+           "heidi": [], "imp_url": None, "exclude": None, "exclude_src": None, "flag": None}
     home, err = site.homepage(row["Website"])
     if not home:
         res["status"] = f"Fehler ({err})"
@@ -145,10 +150,16 @@ def analyse(row):
 
     title_tag = BeautifulSoup(home.get("text", ""), "lxml").title
     title = re.sub(r"\s+", " ", title_tag.get_text(" ")).strip() if title_tag else ""
-    imp_text = common.page_text(imp["text"]) if imp else ""
-    hit = LODGING_RX.search(title) or LODGING_RX.search(imp_text)
-    if hit and not HV_RX.search(title + "\n" + imp_text):
-        where = "Startseiten-Titel" if LODGING_RX.search(title) else "Impressum"
+    # no Impressum page: the homepage text stands in (small sites put the legal data on the homepage)
+    imp_text = common.page_text(imp["text"]) if imp else common.page_text(home.get("text", ""))
+    imp_name = "Impressum" if imp else "Startseite (kein Impressum)"
+    hit = LODGING_RX.search(title) or (LODGING_RX if imp else LODGING_BODY_RX).search(imp_text)
+    no_hv = not HV_RX.search(title + "\n" + imp_text)
+    weak = APARTMENTS_RX.search(title) or APARTMENTS_RX.search(imp_text)
+    if not hit and weak and no_hv:
+        res["flag"] = "prüfen: Apartments"
+    if hit and no_hv:
+        where = "Startseiten-Titel" if LODGING_RX.search(title) else imp_name
         res["exclude"] = (f"Beherbergung, keine Hausverwaltung: {where} nennt '{hit.group(0)}', "
                           f"weder Titel noch Impressum nennen Hausverwaltung/Immobilienverwaltung "
                           f"(Titel: {title[:80]})")
@@ -253,6 +264,10 @@ def main():
             key = re.sub(r" on .*| bei .*", "", res["status"])
             errors[key] = errors.get(key, 0) + 1
             continue
+        if res["flag"]:
+            h = cell(r, "Hinweis").value
+            if res["flag"] not in str(h or ""):
+                cell(r, "Hinweis").value = f"{h} | {res['flag']}" if h else res["flag"]
         if res["exclude"]:
             cell(r, "Typ").value = "ausschließen"
             excluded.append(res)

@@ -200,6 +200,8 @@ def main():
     ap.add_argument("--max-domains", type=int, default=25)
     ap.add_argument("--max-verifications", type=int, default=50)
     ap.add_argument("--plan", action="store_true")
+    ap.add_argument("--only", nargs="+", default=None, metavar="DOMAIN",
+                    help="restrict the run to these domains (still subject to the Prio filter and budget)")
     a = ap.parse_args()
     if a.out.resolve() in (a.inp.resolve(), (DATA / "heidi_merged_v3.xlsx").resolve()):
         sys.exit(f"Refusing to write {a.out}")
@@ -234,12 +236,16 @@ def main():
     # cached domains below the cut stay in (no credits): a reshuffled ranking never drops earlier results
     sel = targets[:a.max_domains] + [t for t in targets[a.max_domains:]
                                      if is_cached("domain-search", {"domain": t[1], "limit": 10})]
+    if a.only:
+        only = {norm_domain(d) for d in a.only}
+        sel = [t for t in sel if t[1] in only]
+        print(f"--only: {len(sel)} von {len(only)} Domains in der Auswahl: {[t[1] for t in sel]}")
     n_cached = sum(is_cached("domain-search", {"domain": d, "limit": 10}) for _, d, _ in sel)
     budget = min(int(left["searches"]), int(left["credits"]))  # only uncached searches cost credits
     print(f"Hunter-Kontingent vor dem Lauf: {left} (Reset {reset}) → {len(sel)} von {len(targets)} Kandidaten "
           f"(max {a.max_domains}), davon {n_cached} aus Cache, {len(sel) - n_cached} neu (Budget {budget})")
     if a.plan:
-        for r, dom, prio in targets[:a.max_domains]:
+        for r, dom, prio in (sel if a.only else targets[:a.max_domains]):
             print(f"  {prio:10s} {cell(r, 'Punkte').value:>3}  {dom:35s} {cell(r, 'Firma').value} | "
                   f"Ansprechpartner: {cell(r, 'Ansprechpartner').value or '–'} | E-Mail: {cell(r, 'E-Mail').value or '–'}")
         return
