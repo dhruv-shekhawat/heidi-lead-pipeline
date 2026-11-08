@@ -109,8 +109,9 @@ def set_fields(ws, hm, r, values, note):
             ws.cell(r, hm["Hinweis"]).value = AGENT_MARK_RX.sub("", h).strip(" |") or None
     if changed:
         h = ws.cell(r, hm["Hinweis"]).value
-        txt = f"{note}: " + "; ".join(f"{k} {o if o not in (None, '') else 'leer'} → {n}"
-                                       for k, o, n in changed if k not in ("Einheiten-Quelle", "Recherchetiefe"))
+        items = [f"{k} {o if o not in (None, '') else 'leer'} → {n}"
+                 for k, o, n in changed if k not in ("Einheiten-Quelle", "Recherchetiefe")]
+        txt = f"{note}: " + ("; ".join(items) if items else "Einheiten bestätigt")  # same figure, source added
         ws.cell(r, hm["Hinweis"]).value = f"{h} | {txt}" if h else txt
     return changed
 

@@ -84,7 +84,7 @@ v1 is kept exactly as recorded: the link list and the field order are switched p
 - **A only through agent values:** 6 rows. Prio A in v16 and below A in the regex-only v14. There are 7; one is in the 30-row sample.
 - **Random:** 16 rows drawn from the 54 remaining "B+ (Agent)" rows. The pool is sorted by domain, then `random.Random(42).sample`.
 
-The sheet is ordered by a shuffled number, so the checker can't see the group. The checker fills in the truth from the firm's website without looking at the workbook.
+The sheet is ordered by a shuffled number, so the checker can't see the group. Its `Firma (Liste)` column shows the name from the original lists (`Name alt` where a rule or the agent renamed the row), so the checker sees no system's Firma answer. The checker fills in the truth from the firm's website without looking at the workbook.
 
 **Frozen:** prompt v2 (`scripts/prompts/extract_v2.md`, `verify_v2.md`), `claude-haiku-5-5`, and the cached responses of the v16 run. All 25 rows have cached agent responses, so the eval scores exactly the agent output in v16 and makes no API calls. The comparison rules in `eval_extraction.py` stay as they are, with one addition: Einheiten "keine Angabe" (the site states no figure) counts as correct only when the system has no figure. "Einheiten nur Berlin" is recorded but not scored, because no system distinguishes Berlin-only figures.
 

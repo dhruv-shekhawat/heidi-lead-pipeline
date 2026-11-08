@@ -7,8 +7,9 @@ Rows (none of them among the 30 already verified in doc/verification_sample.md, 
 2. every row that is Prio A in the current workbook but below A in the regex-only workbook (v14), i.e.
    reached A only through agent values (matched by domain, because the agent renamed some firms),
 3. random "B+ (Agent)" rows up to --n (pool sorted by domain, random.Random(seed).sample).
-The blind sheet is ordered by a shuffled number so the group is not visible; it lists only Firma and
-Website plus empty columns for the fields to determine. Group, seed and source workbooks go to
+The blind sheet is ordered by a shuffled number so the group is not visible; it lists only the firm's
+original list name (Name alt if a rule or the agent renamed the row, so no extracted Impressum name is
+shown to the checker) and Website, plus empty columns for the fields to determine. Group, seed and source workbooks go to
 data/holdout_keys.json. Each row is checked to have cached pages and cached agent responses, so the
 later eval scores exactly the agent output the workbook contains, without new API calls.
 
@@ -34,8 +35,9 @@ BLIND_COLS = ["Nr", "Firma (Liste)", "Website", "Firma", "Verwaltungsart", "Einh
               "Ansprechpartner", "Software", "Kundenportal", "Typ_Verwalter"]
 HEADER = """# Holdout sample (25 rows, blind)
 
-**Not versioned** (firm names; see .gitignore). Selection: `scripts/holdout_select.py`, keys in
-`data/holdout_keys.json`. Pre-registered decision rule: `doc/eval.md`. Scored with
+**Not versioned** (firm names; see .gitignore). Selection: `scripts/holdout_select.py`. Pre-registered
+decision rule: `doc/eval.md`. `Firma (Liste)` is the name from the original lists, not an extracted value.
+Scored with
 `python3 scripts/eval_extraction.py --sample doc/holdout_blind.md --prompts v2 --table`.
 
 Check each firm on its own website (all pages, not only homepage and Impressum) without looking at the
@@ -120,9 +122,11 @@ def main():
         res = llm_enrich.run_row({"r": 0, "Website": dom(r), "Firma": "", "tier": "B"}, a.prompt)
         if res["err"]:
             missing.append(f"{nr} {dom(r)}: {res['err']}")
-        keys.append({"Nr": nr, "Firma": r["Firma"], "Website": dom(r), "Gruppe": grp, "Prio": r.get("Prio"),
+        shown = r.get("Name alt") or r["Firma"]  # pre-rename name: don't show a system's Firma answer
+        keys.append({"Nr": nr, "Firma": r["Firma"], "Name alt": r.get("Name alt"), "Firma (Liste)": shown,
+                     "Website": dom(r), "Gruppe": grp, "Prio": r.get("Prio"),
                      "Prio regex-only": prio_regex.get(dom(r)), "Recherchetiefe": r.get("Recherchetiefe")})
-        lines.append(f"| {nr} | {str(r['Firma']).replace('|', '/')} | {dom(r)} |" + " |" * (len(BLIND_COLS) - 3))
+        lines.append(f"| {nr} | {str(shown).replace('|', '/')} | {dom(r)} |" + " |" * (len(BLIND_COLS) - 3))
     a.out.write_text(HEADER + "\n".join(lines) + "\n", encoding="utf-8")
     a.keys.write_text(json.dumps({"seed": a.seed, "n": a.n, "prompt": a.prompt, "current": a.current.name,
                                   "regex_only": a.regex.name, "excluded_verified": len(verified),
