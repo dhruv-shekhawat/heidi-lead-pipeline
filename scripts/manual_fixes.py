@@ -33,7 +33,7 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import DATA, norm_domain, norm_name, plz_of  # noqa: E402
+from common import AGENT_EINHEITEN_MARK, AGENT_MARK_RX, DATA, norm_domain, norm_name, plz_of  # noqa: E402
 
 HV, WU, LOG = "Hausverwaltungen", "Wohnungsunternehmen", "Log"
 EXTRA_TO_HINWEIS = ["Ansprechpartner", "Funktion", "E-Mail", "Telefon", "Straße", "Recherchetiefe"]
@@ -103,6 +103,10 @@ def set_fields(ws, hm, r, values, note):
                 ws.cell(r, hm["Name alt"]).value = old
             ws.cell(r, hm[k]).value = v
             changed.append((k, old, v))
+    if "Einheiten" in values and "Hinweis" in hm:  # checked by hand: the agent figure is verified or replaced
+        h = ws.cell(r, hm["Hinweis"]).value
+        if h and AGENT_EINHEITEN_MARK in h:
+            ws.cell(r, hm["Hinweis"]).value = AGENT_MARK_RX.sub("", h).strip(" |") or None
     if changed:
         h = ws.cell(r, hm["Hinweis"]).value
         txt = f"{note}: " + "; ".join(f"{k} {o if o not in (None, '') else 'leer'} → {n}"

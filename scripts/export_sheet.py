@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Export the scored workbook as a clean deliverable: data/heidi_final.xlsx.
 
-Tabs (in this order): "Leads Berlin" (Hausverwaltungen, fixed column set, sorted Enterprise, A, B,
-C, nicht bewertbar, then Punkte desc), "Wohnungsunternehmen", "Gewichte", "Log", "Methodik".
-Formatting: bold + frozen header, autofilter, autofit widths, dropdowns on Prio and
+Tabs (in this order): "Top Leads" (Enterprise, A and B rows only, 16 sales columns), "Alle Verwalter"
+(all Hausverwaltungen, fixed column set, Agent-Quote / Agent-Abweichung last), both sorted Enterprise, A,
+B, C, nicht bewertbar, then Punkte desc; "Wohnungsunternehmen", "Gewichte", "Log", "Methodik".
+Formatting (both lead tabs): bold + frozen header, autofilter, autofit widths, dropdowns on Prio and
 Verwaltungsart, conditional fill on Prio. Values are copied, nothing is recomputed.
 Bezirk is only filled where Bezirk/PLZ contains a district name (no PLZ→Bezirk guessing).
 
@@ -30,7 +31,12 @@ LEAD_COLS = ["Prio", "Punkte", "Firma", "Website", "PLZ", "Bezirk", "Verwaltungs
              "Mitgliedschaft", "VDIV-Logo", "Google-Bewertung", "Anzahl Bewertungen", "Gruppe", "Makler auch",
              "Recherchetiefe", "Anzahl Quellen", "Prio-Grund", "Ansprechpartner", "Funktion", "E-Mail",
              "E-Mail-Status", "Allgemeine E-Mail", "LinkedIn", "Telefon", "Straße", "Hinweis", "Quellen", "Stand"]
-AGENT_COLS = ["Agent-Quote", "Agent-Abweichung"]  # exported only when the workbook has them (run_all --agent)
+AGENT_COLS = ["Agent-Quote", "Agent-Abweichung"]  # exported last, only when present (run_all --agent)
+TOP_COLS = ["Prio", "Firma", "Website", "PLZ", "Verwaltungsart", "Einheiten", "Software", "Kundenportal",
+            "Mitgliedschaft", "Ansprechpartner", "Funktion", "E-Mail", "E-Mail-Status", "LinkedIn", "Telefon",
+            "Prio-Grund"]
+TOP_PRIOS = ("Enterprise", "A", "B")
+ALL_TAB, TOP_TAB = "Alle Verwalter", "Top Leads"
 PRIO_ORDER = ["Enterprise", "A", "B", "C", "nicht bewertbar"]
 PRIO_FILL = {"Enterprise": "C9B6E4", "A": "A9D18E", "B": "FFE699", "C": "F8CBAD", "nicht bewertbar": "D9D9D9"}
 LONG = {"Prio-Grund", "Hinweis", "Quellen", "Einheiten-Quelle", "Grund / Hinweis", "Beschreibung", "Inhalt"}
@@ -78,6 +84,35 @@ def copy_tab(src_ws, dst):
     return len(rows)
 
 
+def lead_sheet(ws, cols, recs):
+    """Write lead rows and apply the lead-tab formatting (shared by Top Leads and Alle Verwalter)."""
+    ws.append(cols)
+    for rec in recs:
+        ws.append([rec.get(c) for c in cols])
+    n = len(recs)
+    cidx = {c: i + 1 for i, c in enumerate(cols)}
+    fmts = {"PLZ": "@", "Einheiten": "#,##0", "Google-Bewertung": "0.0"}
+    for r in range(2, n + 2):
+        for c, f in fmts.items():
+            if c in cidx:
+                ws.cell(r, cidx[c]).number_format = f
+    format_sheet(ws, len(cols))
+    last = max(n + 1, 2) + 500
+    pcol, vcol = get_column_letter(cidx["Prio"]), get_column_letter(cidx["Verwaltungsart"])
+    dv = DataValidation(type="list", formula1='"' + ",".join(PRIO_ORDER) + '"', allow_blank=True)
+    dv.add(f"{pcol}2:{pcol}{last}")
+    va_vals = ["beides", "WEG", "Miet", "Gewerbe", "unbekannt"]
+    va_vals += sorted({str(r["Verwaltungsart"]) for r in recs if r.get("Verwaltungsart")} - set(va_vals))
+    dv2 = DataValidation(type="list", formula1='"' + ",".join(va_vals)[:250] + '"', allow_blank=True)
+    dv2.add(f"{vcol}2:{vcol}{last}")
+    ws.add_data_validation(dv)
+    ws.add_data_validation(dv2)
+    for p, color in PRIO_FILL.items():
+        ws.conditional_formatting.add(f"{pcol}2:{pcol}{last}",
+                                      CellIsRule(operator="equal", formula=[f'"{p}"'],
+                                                 fill=PatternFill("solid", start_color=color, end_color=color)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="inp", type=Path, default=DATA / "heidi_scored_v9.xlsx")
@@ -96,33 +131,13 @@ def main():
     leads.sort(key=lambda x: (PRIO_ORDER.index(x["Prio"]) if x["Prio"] in PRIO_ORDER else 9,
                               -(x["Punkte"] or 0), str(x["Firma"]).lower()))
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Leads Berlin"
-    ws.append(cols)
-    for rec in leads:
-        ws.append([rec[c] for c in cols])
     n = len(leads)
-    cidx = {c: i + 1 for i, c in enumerate(cols)}
-    for r in range(2, n + 2):
-        ws.cell(r, cidx["PLZ"]).number_format = "@"
-        ws.cell(r, cidx["Einheiten"]).number_format = "#,##0"
-        ws.cell(r, cidx["Google-Bewertung"]).number_format = "0.0"
-    format_sheet(ws, len(cols))
-    last = n + 1
-    pcol, vcol = get_column_letter(cidx["Prio"]), get_column_letter(cidx["Verwaltungsart"])
-    dv = DataValidation(type="list", formula1='"' + ",".join(PRIO_ORDER) + '"', allow_blank=True)
-    dv.add(f"{pcol}2:{pcol}{max(last, 2) + 500}")
-    va_vals = ["beides", "WEG", "Miet", "Gewerbe", "unbekannt"]
-    va_vals += sorted({str(r["Verwaltungsart"]) for r in leads if r["Verwaltungsart"]} - set(va_vals))
-    dv2 = DataValidation(type="list", formula1='"' + ",".join(va_vals)[:250] + '"', allow_blank=True)
-    dv2.add(f"{vcol}2:{vcol}{max(last, 2) + 500}")
-    ws.add_data_validation(dv)
-    ws.add_data_validation(dv2)
-    for p, color in PRIO_FILL.items():
-        ws.conditional_formatting.add(f"{pcol}2:{pcol}{max(last, 2) + 500}",
-                                      CellIsRule(operator="equal", formula=[f'"{p}"'],
-                                                 fill=PatternFill("solid", start_color=color, end_color=color)))
+    top = [x for x in leads if x["Prio"] in TOP_PRIOS]  # already sorted Enterprise, A, B, Punkte desc
+
+    wb = openpyxl.Workbook()
+    wb.active.title = TOP_TAB
+    lead_sheet(wb[TOP_TAB], TOP_COLS, top)
+    lead_sheet(wb.create_sheet(ALL_TAB), cols, leads)
 
     counts = {}
     for name in ("Wohnungsunternehmen", "Gewichte", "Log"):
@@ -149,7 +164,7 @@ def main():
                           "JACASA); B2B-Kontaktdaten. Bei E-Mail-Ansprache UWG §7 beachten (Werbung per E-Mail "
                           "auch im B2B-Bereich nur mit Einwilligung bzw. mutmaßlicher Einwilligung).")
 
-    section("Quellen (Zeilen im Tab Leads Berlin, Mehrfachnennung möglich)")
+    section(f"Quellen (Zeilen im Tab {ALL_TAB}, Mehrfachnennung möglich)")
     src_count = Counter()
     for r in hv:
         for q in {x.strip() for x in re.split(r"[;,]", str(r.get("Quelle") or "")) if x.strip()}:
@@ -160,6 +175,7 @@ def main():
         line(q, "", c)
     line("davon mit JACASA-Daten", "inkl. Treffer auf bestehende Zeilen (Quelle-Spalte bleibt unverändert)", jac)
     line("Leads gesamt", "", n)
+    line(f"Tab {TOP_TAB}", "Prio Enterprise, A und B aus " + ALL_TAB + "; Vertriebsspalten, gleiche Sortierung", len(top))
     for name, c in counts.items():
         line(f"Tab {name}", "", c)
 
@@ -225,11 +241,14 @@ def main():
         ("Prio", f"Enterprise ab {thr('prio_enterprise')} Einheiten ('bundesweit' im Hinweis nur ab "
                  f"{thr('enterprise_bundesweit')} Einheiten); sonst A ab {thr('prio_a')} Punkten, B ab "
                  f"{thr('prio_b')}, darunter C; 'nicht bewertbar', wenn kein bewertbares Feld befüllt ist."),
+        ("Agent-Zahl", "Einheiten ab 5.000, die nur der Extraktions-Agent gefunden hat, zählen nicht (keine Punkte, "
+                       "kein Enterprise), bis sie geprüft sind: Hinweis 'Agent-Zahl, prüfen', Prio-Grund 'Agent-Zahl, "
+                       "nicht gewertet'. Die Zahl bleibt in der Spalte Einheiten sichtbar."),
         ("Änderung", str(gw.get("prio_a", {}).get("Beschreibung") or "")),
     ]:
         line(a_, b)
 
-    section("Feldvollständigkeit Leads Berlin (befüllt, 'unbekannt' zählt als leer)")
+    section(f"Feldvollständigkeit {ALL_TAB} (befüllt, 'unbekannt' zählt als leer)")
     completeness = []
     for c in cols:
         k = sum(filled(r[c]) for r in leads)
@@ -264,13 +283,14 @@ def main():
     for a_, b in gaps:
         line(a_, b)
 
-    wb._sheets = [wb["Leads Berlin"], wb["Wohnungsunternehmen"], wb["Gewichte"], wb["Log"], wb["Methodik"]]
+    wb._sheets = [wb[TOP_TAB], wb[ALL_TAB], wb["Wohnungsunternehmen"], wb["Gewichte"], wb["Log"], wb["Methodik"]]
     wb.save(a.out)
 
     pc = Counter(r["Prio"] for r in leads)
     print(f"Tabs: {wb.sheetnames}")
-    print(f"Leads Berlin: {n} Zeilen | Prio " + ", ".join(f"{p} {pc.get(p, 0)}" for p in PRIO_ORDER))
-    print("\nFeldvollständigkeit Leads Berlin ('unbekannt' = leer):")
+    print(f"{TOP_TAB}: {len(top)} Zeilen | {ALL_TAB}: {n} Zeilen | Prio "
+          + ", ".join(f"{p} {pc.get(p, 0)}" for p in PRIO_ORDER))
+    print(f"\nFeldvollständigkeit {ALL_TAB} ('unbekannt' = leer):")
     for c, k, pct in completeness:
         print(f"  {c:22s} {pct:5.1f}%  ({k}/{n})")
     print(f"\nGeschrieben: {a.out}")

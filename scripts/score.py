@@ -9,6 +9,8 @@ Usage: python3 scripts/score.py --in data/heidi_contacts_v5.xlsx --out data/heid
 * Adds/recomputes Punkte, Prio, Prio-Grund on the Hausverwaltungen tab (derived columns, so
   they are recalculated on every run). Other tabs pass through unchanged.
 * Einheiten Berlin overrides Einheiten. "unbekannt" counts as not filled.
+* Hinweis "Agent-Zahl, prüfen" (agent-written Einheiten >= 5,000, see llm_enrich): Einheiten is scored as
+  empty (no points, no Enterprise) until verified; Prio-Grund says "Agent-Zahl, nicht gewertet".
 * Prio: Enterprise if Einheiten >= enterprise threshold or Hinweis contains "bundesweit";
   else A >= prio_a, B >= prio_b, C below that if at least one scored field is filled,
   otherwise "nicht bewertbar". Anzahl Quellen does not count as "filled" (always present).
@@ -23,7 +25,7 @@ import openpyxl
 from openpyxl.styles import Font
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import DATA  # noqa: E402
+from common import AGENT_EINHEITEN_MARK, DATA  # noqa: E402
 
 HV = "Hausverwaltungen"
 GW = "Gewichte"
@@ -97,6 +99,13 @@ def filled(v):
 
 def score_row(g, w):
     pts, parts = 0, []
+    agent_unchecked = None
+    if AGENT_EINHEITEN_MARK in str(g("Hinweis") or "") and filled(g("Einheiten")):
+        # agent figure >= Enterprise threshold, not yet verified: scored as if Einheiten were empty
+        agent_unchecked, g0 = num(g("Einheiten")), g
+        g = lambda k: None if k == "Einheiten" else g0(k)  # noqa: E731
+        parts.append(f"Einheiten {fmt(agent_unchecked)} Agent-Zahl, nicht gewertet (+0)" if agent_unchecked
+                     is not None else "Einheiten Agent-Zahl, nicht gewertet (+0)")
 
     def add(p, label):
         nonlocal pts

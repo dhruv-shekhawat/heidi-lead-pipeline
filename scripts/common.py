@@ -27,6 +27,10 @@ CACHE = DATA / "cache"
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 OFFLINE = os.environ.get("HEIDI_OFFLINE") == "1"
+# Hinweis marker for an agent-written Einheiten figure >= the Enterprise threshold: score.py ignores the figure
+# until it is verified (manual_fixes setting Einheiten removes the marker)
+AGENT_EINHEITEN_MARK = "Agent-Zahl, prüfen"
+AGENT_MARK_RX = re.compile(r"\s*(?:\|\s*)?Agent-Zahl, prüfen(?: \([^)]*\))?")
 
 session = requests.Session()
 session.headers.update({

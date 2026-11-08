@@ -25,6 +25,9 @@ Writing (confirmed values only):
   empty and the names share a distinctive 4+ letter word (light_enrich's rule), otherwise only noted. Einheiten -> Einheiten-Quelle "URL – „quote“". Recherchetiefe -> "B+ (Agent)".
 * Typ_Verwalter "nein" -> Hinweis "Agent: kein Verwalter, prüfen (<reason>)"; never auto-excluded,
   and no other field is written for that row (the website may belong to someone else).
+* Einheiten >= the Enterprise threshold (5,000) written by the agent: Hinweis "Agent-Zahl, prüfen
+  (Einheiten N)"; the number stays in the cell, score.py treats it as empty until it is verified
+  (a manual_fixes Einheiten entry removes the marker).
 * "Agent-Quote": "Feld: „quote“ (url)" for every confirmed value.
 Same-name/same-PLZ duplicates created by a rename are merged afterwards (add_sources.merge_same_name_rows).
 manual_fixes.py runs after this step, so hand-checked corrections always win.
@@ -59,6 +62,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 import websites as site  # noqa: E402
 from light_enrich import words4  # noqa: E402 – same rename guard as light_enrich
+import score  # noqa: E402
+
+# agent Einheiten >= this (Gewichte prio_enterprise default) are marked AGENT_EINHEITEN_MARK and not scored
+ENTERPRISE_MIN = next(t for k, _, t, _ in score.DEFAULTS if k == "prio_enterprise")
 
 HV, LOG = "Hausverwaltungen", "Log"
 MODEL = "claude-haiku-5-5"
@@ -311,8 +318,8 @@ def main():
         results = list(ex.map(lambda row: run_row(row, a.prompt), rows))
 
     stats = {"verarbeitet": 0, "ohne Seiten": 0, "Fehler": 0, "bestätigt": 0, "verworfen": 0, "geschrieben": 0,
-             "Abweichung (A behalten)": 0, "Regex ersetzt": 0, "kein Verwalter": 0}
-    report, flagged, errors = [], [], {}
+             "Abweichung (A behalten)": 0, "Regex ersetzt": 0, "kein Verwalter": 0, "Agent-Zahl, prüfen": 0}
+    report, flagged, errors, marked = [], [], {}, []
     log_rows = []
     for res in results:
         row, r = res["row"], res["row"]["r"]
@@ -371,6 +378,14 @@ def main():
                     cell(r, col).value = val
                     if f == "Einheiten":
                         cell(r, "Einheiten-Quelle").value = f"{c['url']} – „{c['quote']}“"
+                        n_val = score.num(val)
+                        if n_val is not None and n_val >= ENTERPRISE_MIN:
+                            h = cell(r, "Hinweis").value or ""
+                            if common.AGENT_EINHEITEN_MARK not in h:
+                                mark = f"{common.AGENT_EINHEITEN_MARK} (Einheiten {score.fmt(n_val)})"
+                                cell(r, "Hinweis").value = f"{h} | {mark}" if h else mark
+                            stats["Agent-Zahl, prüfen"] += 1
+                            marked.append((row["Firma"], row["Website"], score.fmt(n_val)))
                     if f == "Ansprechpartner":
                         fc = res["claims"].get("Funktion")
                         ok = fc and res["checks"].get("Funktion", ("",))[0] == "bestätigt"
@@ -418,6 +433,10 @@ def main():
     print("Ergebnis:", stats)
     if errors:
         print("  nicht verarbeitet:", errors)
+    print(f"Einheiten ≥ {score.fmt(ENTERPRISE_MIN)} vom Agenten (Hinweis '{common.AGENT_EINHEITEN_MARK}', "
+          f"zählen nicht für Enterprise): {len(marked)}")
+    for f_, w_, n_ in marked:
+        print(f"   {f_} ({w_}): {n_}")
     print(f"Als kein Verwalter markiert (Hinweis, nicht ausgeschlossen): {len(flagged)}")
     for f_, w_, why in flagged:
         print(f"   {f_} ({w_}): {why}")

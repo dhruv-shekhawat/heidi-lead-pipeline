@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Error rate per field on the hand-checked verification sample: regex vs v12 table vs agent prompts.
+"""Error rate per field on a hand-checked sample: regex vs workbooks vs agent prompts vs ensemble.
 
-Truth: doc/verification_sample.md (30 rows, built from doc/verification_report.md; both untracked
-because they hold firm and person names). Cells "nicht prüfbar" are skipped.
+Truth: any sample file in the verification_sample format (a Markdown table with a Website column and
+one column per field; extra columns are ignored). Default doc/verification_sample.md (30 rows, built
+from doc/verification_report.md); the holdout is doc/holdout_blind.md once filled in (both untracked:
+firm and person names). Cells "nicht prüfbar" or empty are skipped.
 Systems:
 * Regex     – light_enrich / extract_contacts / apply_review rules run on the same cached pages
               (Firma = Impressum line with Rechtsform, Einheiten = largest rule-approved candidate,
@@ -10,15 +12,19 @@ Systems:
 * Tabelle   – a workbook (rows moved to the Log as "ausgeschlossen" count as Typ_Verwalter nein) (default data/heidi_scored_v12.xlsx = hand research + regex, the state the
               sample was checked against; its error count must equal the report's bold cells).
 * Agent vN  – llm_enrich.run_row with prompt version N (cached responses; only "bestätigt" values).
+* Ensemble  – agent (--ensemble version, default v2) for Firma, Verwaltungsart, Einheiten, regex rules for the
+              other fields; where the agent has no confirmed value the regex value is kept (as in the pipeline).
 Comparison: Firma by normalised name ("und" = "&"); Verwaltungsart exact (empty = unbekannt); Einheiten as
-integer; Ansprechpartner by surname, any listed person counts; Software as a set of names (empty =
+integer ("keine Angabe" = correct only if empty); Ansprechpartner by surname, any listed person counts; Software as a set of names (empty =
 keine); Kundenportal ja/nein (empty = nein); Typ_Verwalter ja/nein (empty = ja). A row without
 output (no cached Impressum, API error) counts as empty.
 Output: aggregate table (stdout and --md, no firm names) + per-row errors in --details
 (default data/eval_details.md, untracked).
 
-Usage: python3 scripts/eval_extraction.py --prompts v1 v2 [--table v12=data/heidi_scored_v12.xlsx …]
-                                          [--md doc/eval_tables.md] [--details data/eval_details.md]
+Usage: python3 scripts/eval_extraction.py [--sample doc/verification_sample.md] --prompts v1 v2
+                                          [--table v12=data/heidi_scored_v12.xlsx …] (--table alone: none)
+                                          [--ensemble v2] [--md doc/eval_tables.md] [--details data/eval_details.md]
+Holdout: python3 scripts/eval_extraction.py --sample doc/holdout_blind.md --prompts v2 --table
 """
 import argparse
 import os
@@ -35,6 +41,8 @@ import common  # noqa: E402
 import websites as site  # noqa: E402
 
 FIELDS = ["Firma", "Verwaltungsart", "Einheiten", "Ansprechpartner", "Software", "Kundenportal", "Typ_Verwalter"]
+AGENT_FIELDS = ("Firma", "Verwaltungsart", "Einheiten")  # ensemble: agent here, regex rules for the rest
+NO_FIGURE = ("keine angabe", "keine", "nicht angegeben")
 
 
 def parse_sample(path):
@@ -65,6 +73,8 @@ def correct(field, truth, pred):
         p = str(pred or "unbekannt").strip() or "unbekannt"
         return p.lower() == truth.lower()
     if field == "Einheiten":
+        if truth.strip().lower() in NO_FIGURE:  # site states no figure: any number is an error
+            return pred is None or str(pred).strip() == ""
         try:
             return int(str(pred).replace(".", "")) == int(truth)
         except (TypeError, ValueError):
@@ -140,6 +150,7 @@ def main():
     ap.add_argument("--sample", default="doc/verification_sample.md")
     ap.add_argument("--prompts", nargs="*", default=["v1", "v2"])
     ap.add_argument("--table", nargs="*", default=["v12=data/heidi_scored_v12.xlsx"])
+    ap.add_argument("--ensemble", default="v2", help="agent version for the Ensemble column ('' = none)")
     ap.add_argument("--md", type=Path, default=None)
     ap.add_argument("--details", type=Path, default=common.DATA / "eval_details.md")
     a = ap.parse_args()
@@ -159,6 +170,15 @@ def main():
             systems[f"Agent {v}"][s["Website"]] = vals
             if err:
                 notes.setdefault(f"Agent {v}", []).append(f"{s['Website']}: {err}")
+    if a.ensemble:
+        if a.ensemble not in a.prompts:
+            sys.exit(f"--ensemble {a.ensemble} needs --prompts … {a.ensemble}")
+        ag = systems[f"Agent {a.ensemble}"]
+        systems["Ensemble"] = {}
+        for s in sample:
+            rx, av = systems["Regex"][s["Website"]], ag[s["Website"]]
+            systems["Ensemble"][s["Website"]] = {
+                f: (av.get(f) if f in AGENT_FIELDS and av.get(f) not in (None, "") else rx.get(f)) for f in FIELDS}
     import llm_enrich
     cost = llm_enrich.cost(llm_enrich.COST["in"], llm_enrich.COST["out"])
 
@@ -185,9 +205,14 @@ def main():
             f"{agg[n][f][0]} ({agg[n][f][0] / n_chk:.0%})" if n_chk else "–" for n in names) + " |")
     tot = {n: [sum(agg[n][f][0] for f in FIELDS), sum(agg[n][f][1] for f in FIELDS)] for n in names}
     L.append(f"| **gesamt** | {tot[names[0]][1]} | " + " | ".join(
-        f"**{tot[n][0]} ({tot[n][0] / tot[n][1]:.1%})**" for n in names) + " |")
+        f"**{tot[n][0]} ({tot[n][0] / tot[n][1]:.1%})**" if tot[n][1] else "–" for n in names) + " |")
+    print(f"Stichprobe: {a.sample} ({len(sample)} Zeilen)")
     print("Fehler je Feld (Fehler / geprüfte Zellen):")
     print("\n".join(L))
+    berlin = [s.get("Einheiten nur Berlin", "").strip().lower() for s in sample if "Einheiten nur Berlin" in s]
+    if any(berlin):  # information only: no system distinguishes Berlin-only figures
+        print("Einheiten nur Berlin (nicht bewertet): " + ", ".join(
+            f"{k} {berlin.count(k)}" for k in sorted(set(berlin)) if k))
     for n, ns in notes.items():
         print(f"{n}: ohne Ausgabe {len(ns)} Zeilen ({'; '.join(sorted({re.sub(r'.*: ', '', x) for x in ns}))})")
     print(f"LLM-Kosten der Eval-Antworten (Cache-Summe): ${cost:.4f}")

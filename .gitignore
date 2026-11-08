@@ -6,3 +6,4 @@ __pycache__/
 doc/verification_report.md
 doc/verification_sample.md
 doc/PROGRESS.md
+doc/holdout_blind.md
