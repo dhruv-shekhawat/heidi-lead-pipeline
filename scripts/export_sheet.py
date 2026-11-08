@@ -30,6 +30,7 @@ LEAD_COLS = ["Prio", "Punkte", "Firma", "Website", "PLZ", "Bezirk", "Verwaltungs
              "Mitgliedschaft", "VDIV-Logo", "Google-Bewertung", "Anzahl Bewertungen", "Gruppe", "Makler auch",
              "Recherchetiefe", "Anzahl Quellen", "Prio-Grund", "Ansprechpartner", "Funktion", "E-Mail",
              "E-Mail-Status", "Allgemeine E-Mail", "LinkedIn", "Telefon", "Straße", "Hinweis", "Quellen", "Stand"]
+AGENT_COLS = ["Agent-Quote", "Agent-Abweichung"]  # exported only when the workbook has them (run_all --agent)
 PRIO_ORDER = ["Enterprise", "A", "B", "C", "nicht bewertbar"]
 PRIO_FILL = {"Enterprise": "C9B6E4", "A": "A9D18E", "B": "FFE699", "C": "F8CBAD", "nicht bewertbar": "D9D9D9"}
 LONG = {"Prio-Grund", "Hinweis", "Quellen", "Einheiten-Quelle", "Grund / Hinweis", "Beschreibung", "Inhalt"}
@@ -84,10 +85,11 @@ def main():
     a = ap.parse_args()
     src = openpyxl.load_workbook(a.inp, read_only=True)
     hv_hdr, hv = rows_of(src["Hausverwaltungen"])
+    cols = LEAD_COLS + [c for c in AGENT_COLS if c in hv_hdr]
 
     leads = []
     for r in hv:
-        rec = {c: r.get(c) for c in LEAD_COLS}
+        rec = {c: r.get(c) for c in cols}
         rec["PLZ"] = plz_of(r.get("Bezirk/PLZ")) or None
         rec["Bezirk"] = bezirk(r.get("Bezirk/PLZ"))
         leads.append(rec)
@@ -97,16 +99,16 @@ def main():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Leads Berlin"
-    ws.append(LEAD_COLS)
+    ws.append(cols)
     for rec in leads:
-        ws.append([rec[c] for c in LEAD_COLS])
+        ws.append([rec[c] for c in cols])
     n = len(leads)
-    cidx = {c: i + 1 for i, c in enumerate(LEAD_COLS)}
+    cidx = {c: i + 1 for i, c in enumerate(cols)}
     for r in range(2, n + 2):
         ws.cell(r, cidx["PLZ"]).number_format = "@"
         ws.cell(r, cidx["Einheiten"]).number_format = "#,##0"
         ws.cell(r, cidx["Google-Bewertung"]).number_format = "0.0"
-    format_sheet(ws, len(LEAD_COLS))
+    format_sheet(ws, len(cols))
     last = n + 1
     pcol, vcol = get_column_letter(cidx["Prio"]), get_column_letter(cidx["Verwaltungsart"])
     dv = DataValidation(type="list", formula1='"' + ",".join(PRIO_ORDER) + '"', allow_blank=True)
@@ -186,6 +188,10 @@ def main():
                              "Bestand; Satz + URL in Einheiten-Quelle."),
         ("B+ (automatisch)", "Verzeichniseintrag, Startseite + Impressum automatisch ausgewertet (Stichwörter); "
                              "nicht manuell geprüft."),
+        ("B+ (Agent)", "Wie B+, zusätzlich Startseite + Impressum vom Extraktions-Agenten (claude-haiku-5-5) "
+                       "gelesen: jeder Wert mit wörtlichem Zitat + URL (Spalte Agent-Quote), von einem zweiten "
+                       "Aufruf gegen den Seitentext geprüft; verworfene Werte im Log (Bereich 'Agent verworfen'). "
+                       "Fehlerquoten je Feld: doc/eval.md."),
         ("B (Verzeichnis)", "Nur Verzeichnisdaten (11880, Gelbe Seiten, JACASA); Website nicht oder nicht "
                             "erfolgreich geprüft."),
         ("C (nur Name)", "Nur Name und PLZ bekannt, keine Website gefunden."),
@@ -225,7 +231,7 @@ def main():
 
     section("Feldvollständigkeit Leads Berlin (befüllt, 'unbekannt' zählt als leer)")
     completeness = []
-    for c in LEAD_COLS:
+    for c in cols:
         k = sum(filled(r[c]) for r in leads)
         pct = round(100 * k / n, 1) if n else 0
         completeness.append((c, k, pct))
@@ -248,6 +254,10 @@ def main():
         ("Automatische Felder", "Verwaltungsart, Software, Kundenportal, Messdienst, Fernablesung, VDIV-Logo bei B+ "
                                 "aus Stichwörtern (Startseite + Impressum); 'unbekannt' = nichts gefunden, nicht 'nein'."),
         ("Bezirk", "Nur wo die Quelle einen Bezirk nennt; keine Ableitung aus der PLZ."),
+        ("Agent", "Nur Zeilen mit Startseite + Impressum im Cache. A-Zeilen: nur leere Felder ergänzt, abweichende "
+                  "Agent-Werte in 'Agent-Abweichung'. Hinweis 'Agent: kein Verwalter, prüfen' = Verdacht, nicht "
+                  "ausgeschlossen. Kein temperature=0 möglich (Modell lehnt es ab); reproduzierbar über den "
+                  "Antwort-Cache."),
         ("Dubletten", "Lockere Namensähnlichkeit bei anderer PLZ nicht zusammengeführt (Hinweis "
                       "'mögliches Duplikat')."),
     ]

@@ -26,7 +26,7 @@
 
 **Reading the table:**
 
-- **Agent v2 vs regex.** On the same pages, agent v2 makes fewer errors than the regex rules (16.0% vs 20.4%). It is clearly better on Firma, Verwaltungsart and Einheiten, and worse on Kundenportal and Software, where links and logos carry the information.
+- **Agent v2 vs regex.** On the same pages, agent v2 makes fewer errors than the regex rules (16.0% vs 20.4%). It is better on Firma, Verwaltungsart and Einheiten. It is worse on Kundenportal, Software, Ansprechpartner and Typ_Verwalter. Regex reads every link and logo, and it does better there.
 - **v12 table vs agent.** The v12 table, i.e. hand research plus regex, is still better than the agent alone (9.9%).
 - **v15 is not an independent result.** The final table, with agent and manual fixes, shows 1.2%. That number is mostly the manual corrections from this same sample, so don't read it as independent accuracy.
 
@@ -48,6 +48,13 @@ Most v1 errors were empty values: the agent either didn't extract a value or the
 4. **Contact person.** The quote must contain the name. v1 quoted only the line "Geschäftsführer" when the name stood on the next line. Academic degrees are dropped from the name.
 5. **Verifier leniency.** Differences in letter case or spacing ("Gmbh" vs "GmbH") no longer lead to a rejection.
 6. **Reason before verdict.** In v1 the JSON schema asked for the verdict first, and the verifier often wrote "daher bestätigt" in the reason but returned "verworfen". v2 orders the schema reason → verdict and tells the model that the verdict must match the reason.
+
+**v2 was scored twice on this sample.**
+
+- **First scoring: changes 1–5.** Prompt changes plus the link list, with the verifier still deciding before reasoning: 35 errors (21.6%).
+- **Second scoring: change 6 added.** Reason before verdict was added after that result: 26 errors (16.0%), the figure in the table.
+
+So 16.0% reflects two looks at the test set, not one.
 
 v1 is kept exactly as recorded: the link list and the field order are switched per version in `llm_enrich.VERSION_OPTS`. That keeps its cached responses valid and the comparison reproducible.
 

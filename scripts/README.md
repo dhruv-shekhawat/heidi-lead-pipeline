@@ -92,7 +92,7 @@ Helper modules (not run directly): `common.py` (cache, robots, fetch, text clean
 - **Run:** `python3 scripts/score.py --in data/heidi_v8_contacts.xlsx --out data/heidi_scored_v8.xlsx [--set prio_a=5 --note "…"]`
 
 ## export_sheet.py
-- **Purpose:** builds the deliverable: tabs "Leads Berlin" (Hausverwaltungen, 33 fixed columns incl. Allgemeine E-Mail next to E-Mail, PLZ + Bezirk split from Bezirk/PLZ – Bezirk only where the source names one –, sorted Enterprise, A, B, C, nicht bewertbar, then Punkte desc), "Wohnungsunternehmen", "Gewichte", "Log", "Methodik" (sources with row counts, dedupe rules, Recherchetiefe definitions, scoring rules in plain German from Gewichte, field completeness, known gaps, data origin + UWG §7 note). Bold frozen header, autofilter, autofit, dropdowns on Prio and Verwaltungsart, conditional fill on Prio.
+- **Purpose:** builds the deliverable: tabs "Leads Berlin" (Hausverwaltungen, 33 fixed columns incl. Allgemeine E-Mail next to E-Mail, plus Agent-Quote and Agent-Abweichung when the workbook comes from `run_all --agent`, PLZ + Bezirk split from Bezirk/PLZ – Bezirk only where the source names one –, sorted Enterprise, A, B, C, nicht bewertbar, then Punkte desc), "Wohnungsunternehmen", "Gewichte", "Log", "Methodik" (sources with row counts, dedupe rules, Recherchetiefe definitions, scoring rules in plain German from Gewichte, field completeness, known gaps, data origin + UWG §7 note). Bold frozen header, autofilter, autofit, dropdowns on Prio and Verwaltungsart, conditional fill on Prio.
 - **Input:** a scored workbook.
 - **Output:** `data/heidi_final.xlsx`; prints the completeness table.
 - **Run:** `python3 scripts/export_sheet.py --in data/heidi_scored_v9.xlsx --out data/heidi_final.xlsx`
