@@ -2,7 +2,8 @@
 """Run the whole pipeline in order; every step can be skipped; the cache is reused.
 
   scrape_directories → scrape_jacasa → jacasa_union → fetch_details → merge → add_sources →
-  light_enrich → extract_contacts → apply_review (--auto) → manual_fixes → score →
+  light_enrich → extract_contacts → apply_review (--auto) → [llm_enrich, optional: --agent] →
+  manual_fixes → score →
   [merge_contacts, optional: --contacts data/heidi_contacts_v10.xlsx] →
   [hunter_enrich, optional: --hunter; uses Hunter.io credits; with --dry-run cache only] → diff → export
 
@@ -29,10 +30,10 @@ ROOT = Path(__file__).resolve().parent.parent
 S = ROOT / "scripts"
 DATA = ROOT / "data"
 STEPS = ["scrape_directories", "scrape_jacasa", "jacasa_union", "fetch_details", "merge", "add_sources",
-         "light_enrich", "extract_contacts", "apply_review", "manual_fixes", "score", "merge_contacts",
+         "light_enrich", "extract_contacts", "apply_review", "llm_enrich", "manual_fixes", "score", "merge_contacts",
          "hunter_enrich", "diff", "export"]
 FETCH_STEPS = ["scrape_directories", "scrape_jacasa", "fetch_details"]
-WEB_STEPS = ["light_enrich", "extract_contacts", "hunter_enrich"]
+WEB_STEPS = ["light_enrich", "extract_contacts", "llm_enrich", "hunter_enrich"]
 
 
 def main():
@@ -47,13 +48,17 @@ def main():
     ap.add_argument("--hunter", action="store_true",
                     help="run hunter_enrich (Hunter.io, max 25 domain searches + 50 verifications; "
                          "key from .env; with --dry-run only cached responses, no credits)")
+    ap.add_argument("--agent", action="store_true",
+                    help="run llm_enrich (Claude extraction agent, ANTHROPIC_API_KEY from .env; with --dry-run "
+                         "only cached responses, no API calls)")
+    ap.add_argument("--agent-prompt", default="v2", help="prompt version in scripts/prompts/ (default v2)")
     ap.add_argument("--diff-old", type=Path, default=None,
                     help="default: previous data/heidi_latest.xlsx, else data/heidi_merged_v3.xlsx")
     a = ap.parse_args()
     out = a.outdir.resolve()
     out.mkdir(parents=True, exist_ok=True)
     skip = set(a.skip) | (set(FETCH_STEPS) if a.dry_run else set()) | (set() if a.contacts else {"merge_contacts"}) \
-        | (set() if a.hunter else {"hunter_enrich"})
+        | (set() if a.hunter else {"hunter_enrich"}) | (set() if a.agent else {"llm_enrich"})
     latest = DATA / "heidi_latest.xlsx"
     diff_old = a.diff_old or (latest if latest.exists() else DATA / "heidi_merged_v3.xlsx")
     if diff_old == latest and latest.exists():
@@ -63,7 +68,8 @@ def main():
 
     paths = {"merge": out / "merged.xlsx", "add_sources": out / "merged_sources.xlsx",
              "light_enrich": out / "light.xlsx", "extract_contacts": out / "contacts.xlsx",
-             "apply_review": out / "reviewed.xlsx", "manual_fixes": out / "fixed.xlsx",
+             "apply_review": out / "reviewed.xlsx", "llm_enrich": out / "agent.xlsx",
+             "manual_fixes": out / "fixed.xlsx",
              "merge_contacts": out / "scored_contacts.xlsx", "hunter_enrich": out / "hunter.xlsx",
              "score": out / "scored.xlsx"}
     current = None  # workbook flowing through the chain
@@ -98,6 +104,9 @@ def main():
         elif step == "apply_review":
             cmd = [py, S / "apply_review.py", "--auto", "--in", current, "--out", paths[step],
                    "--review", out / "review_einheiten.csv"]
+        elif step == "llm_enrich":
+            cmd = [py, S / "llm_enrich.py", "--in", current, "--out", paths[step], "--prompt", a.agent_prompt,
+                   "--report", out / "agent_extraction.csv"]
         elif step == "manual_fixes":
             cmd = [py, S / "manual_fixes.py", "--in", current, "--out", paths[step]]
         elif step == "score":
