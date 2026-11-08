@@ -1,0 +1,11 @@
+{
+  "_comment": "Manuelle Einzelentscheidungen (2026-11-08). Zeilen werden über die Website-Domain gefunden.",
+  "einzelobjekt": [
+    {"website": "vogel24.com", "grund": "Einheiten-Zahl bezieht sich auf ein Einzelobjekt (Referenzliste), nicht auf den Verwaltungsbestand"},
+    {"website": "conwimo.de", "grund": "Einheiten-Zahl bezieht sich auf ein Einzelobjekt (Bürovilla Potsdamer Platz), nicht auf den Verwaltungsbestand"}
+  ],
+  "zu_wohnungsunternehmen": [
+    {"website": "ugphilipp.de", "segment": "sonstige", "einheiten_art": "Eigenbestand",
+     "grund": "Bestandshalter: 'Unsere Hausverwaltung konzentriert sich auf die Verwaltung unserer eigenen Objekte'"}
+  ]
+}
