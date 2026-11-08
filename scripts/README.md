@@ -80,10 +80,18 @@ Helper modules (not run directly): `common.py` (cache, robots, fetch, normalisat
 - **Run:** `python3 scripts/export_sheet.py --in data/heidi_scored_v9.xlsx --out data/heidi_final.xlsx`
 
 ## merge_contacts.py
-- **Purpose:** final contact merge: copies E-Mail, E-Mail-Status, LinkedIn, Ansprechpartner from a hand-updated workbook into the scored workbook wherever the source cell is non-empty (overwrites on purpose; empty cells never clear). Rows matched by normalised Firma + PLZ, then Name alt + PLZ, then Website domain; unmatched rows are reported, not added. Scoring is not rerun (contact fields carry no points).
+- **Purpose:** final contact merge: copies E-Mail, E-Mail-Status, LinkedIn, Ansprechpartner from a hand-updated workbook into the scored workbook wherever the source cell is non-empty (overwrites on purpose; empty cells never clear). Rows matched by full identity (Firma + PLZ + Website + Name alt), then Website domain, then Firma + PLZ / Name alt + PLZ only if that name key is unique (the list has a few same-name/same-PLZ duplicates); ambiguous or unmatched rows are reported, not guessed or added. Scoring is not rerun (contact fields carry no points).
 - **Input:** `--base data/heidi_scored_v9.xlsx`, `--contacts data/heidi_contacts_v10.xlsx` (same layout as v9).
 - **Output:** `data/heidi_scored_v11.xlsx`; then `export_sheet.py` → `data/heidi_final.xlsx`.
 - **Run:** `python3 scripts/merge_contacts.py && python3 scripts/export_sheet.py --in data/heidi_scored_v11.xlsx --out data/heidi_final.xlsx` · in run_all: `--contacts data/heidi_contacts_v10.xlsx` (optional step, skipped without the flag)
+
+## hunter_enrich.py
+- **Purpose:** Hunter.io for the top leads. Rows with Prio Enterprise / A / B and a Website, ordered by Prio then Punkte, at most 25 distinct domains (free plan: 50 credits/month = 25 Domain Searches at 1 credit + 50 verifications at 0.5; capped by the remaining quota from the free `/v2/account` call). Domain Search records `Hunter-Pattern` and `Hunter-Personen`; if a listed person matches the Ansprechpartner (umlaut variants and particles handled) → E-Mail with status "Hunter NN%", else the Ansprechpartner's address is built from the pattern → "Muster (Hunter-Pattern)". Only empty E-Mail cells are written (addresses found on the website and anything "verifiziert" are kept). Email Verifier on every written address (≤ 50): "verifiziert" / "ungültig" / "unsicher (accept-all)" / "unsicher (<status>)". Responses cached in `data/cache/hunter_*.json` without the key, so reruns cost no credits; 401/403/429 or a quota error stops the API calls. Prints a table per Prio and the remaining quota (response headers if Hunter sends any, plus `/v2/account`).
+- **Key:** `HUNTER_API_KEY` in `.env` (project root, git-ignored) or the environment.
+- **Input:** `data/heidi_contacts_v10.xlsx`.
+- **Output:** `data/heidi_contacts_v10b.xlsx`.
+- **Run:** `python3 scripts/hunter_enrich.py` · `--plan` lists the 25 domains without spending credits · in run_all: `--hunter`.
+- **Note:** pattern-built addresses are guesses until verified; for e-mail outreach observe UWG §7 and GDPR.
 
 ## diff.py
 - **Purpose:** compares two workbooks per tab (row identity = normalised Firma + PLZ, fallback Name alt): new, removed, renamed rows, Prio changes, Einheiten / Ansprechpartner changes.
@@ -92,7 +100,7 @@ Helper modules (not run directly): `common.py` (cache, robots, fetch, normalisat
 - **Run:** `python3 scripts/diff.py data/heidi_merged_v3.xlsx data/heidi_scored_v6.xlsx`
 
 ## run_all.py
-- **Purpose:** runs scrape_directories → scrape_jacasa → jacasa_union → fetch_details → merge → add_sources → light_enrich → extract_contacts → apply_review (--auto) → manual_fixes → score → [merge_contacts, only with `--contacts`] → diff → export, each skippable (`--skip STEP …`), continues past failures, reuses the cache, copies the final scored workbook to `data/heidi_latest.xlsx`; `--dry-run` skips the three scrapers and runs the website steps from cache only.
+- **Purpose:** runs scrape_directories → scrape_jacasa → jacasa_union → fetch_details → merge → add_sources → light_enrich → extract_contacts → apply_review (--auto) → manual_fixes → score → [merge_contacts, only with `--contacts`] → [hunter_enrich, only with `--hunter`, never in `--dry-run`] → diff → export, each skippable (`--skip STEP …`), continues past failures, reuses the cache, copies the final scored workbook to `data/heidi_latest.xlsx`; `--dry-run` skips the three scrapers and runs the website steps from cache only.
 - **Input:** `--base data/heidi_enriched_v2.xlsx` + the CSVs in `data/`.
 - **Output:** `data/run/*` (merged, merged_sources, light, contacts, reviewed, fixed, scored, review_einheiten.csv, diff_report.md, heidi_final.xlsx), `data/heidi_latest.xlsx`. A dry-run reproduces `data/heidi_scored_v9.xlsx` exactly (checked with diff.py).
 - **Run:** `python3 scripts/run_all.py --dry-run`

@@ -2,8 +2,10 @@
 """Merge hand-updated contact columns from a v10 workbook into the scored workbook.
 
 For every Hausverwaltungen row of --contacts (default data/heidi_contacts_v10.xlsx) the matching
-row in --base (default data/heidi_scored_v9.xlsx) is found by normalised Firma + PLZ, then
-Name alt + PLZ, then Website domain. For each of E-Mail, E-Mail-Status, LinkedIn,
+row in --base (default data/heidi_scored_v9.xlsx) is found by full identity (normalised Firma + PLZ +
+Website domain + Name alt), then Website domain, then Firma + PLZ or Name alt + PLZ – a name key is
+only used when it points to exactly one row (the list contains a few same-name/same-PLZ duplicates);
+ambiguous rows are reported, not guessed. For each of E-Mail, E-Mail-Status, LinkedIn,
 Ansprechpartner the v10 value is copied when the v10 cell is non-empty (this deliberately
 overwrites: v10 is the hand-checked source). Empty v10 cells never clear a value.
 Other columns, other tabs and the scoring are untouched (contact fields carry no points).
@@ -30,12 +32,14 @@ def header_map(ws):
 
 
 def keys(get):
+    """Most specific first: full identity, domain, then name keys."""
     plz = plz_of(get("Bezirk/PLZ"))
-    out = [f"n:{norm_name(get('Firma'))}|{plz}"]
-    if get("Name alt"):
-        out.append(f"n:{norm_name(get('Name alt'))}|{plz}")
+    out = [f"id:{norm_name(get('Firma'))}|{plz}|{norm_domain(get('Website'))}|{norm_name(get('Name alt'))}"]
     if norm_domain(get("Website")):
         out.append(f"d:{norm_domain(get('Website'))}")
+    out.append(f"n:{norm_name(get('Firma'))}|{plz}")
+    if get("Name alt"):
+        out.append(f"n:{norm_name(get('Name alt'))}|{plz}")
     return out
 
 
@@ -57,7 +61,7 @@ def main():
     for r in range(2, ws.max_row + 1):
         if ws.cell(r, hm["Firma"]).value:
             for k in keys(lambda col, r=r: ws.cell(r, hm[col]).value if col in hm else None):
-                idx.setdefault(k, r)
+                idx.setdefault(k, set()).add(r)
 
     src = openpyxl.load_workbook(a.contacts, read_only=True)[HV]
     shdr = [c.value for c in next(src.iter_rows(max_row=1))]
@@ -71,7 +75,14 @@ def main():
         if not rec.get("Firma"):
             continue
         n += 1
-        row = next((idx[k] for k in keys(rec.get) if k in idx), None)
+        row = None
+        for k in keys(rec.get):
+            if k in idx:
+                if len(idx[k]) == 1:
+                    row = next(iter(idx[k]))
+                    break
+                if k.startswith("n:"):
+                    continue  # ambiguous name key: try the next key, never guess
         if not row:
             if any(rec.get(c) not in (None, "") for c in COLS):
                 unmatched.append(rec["Firma"])

@@ -3,7 +3,8 @@
 
   scrape_directories → scrape_jacasa → jacasa_union → fetch_details → merge → add_sources →
   light_enrich → extract_contacts → apply_review (--auto) → manual_fixes → score →
-  [merge_contacts, optional: --contacts data/heidi_contacts_v10.xlsx] → diff → export
+  [merge_contacts, optional: --contacts data/heidi_contacts_v10.xlsx] →
+  [hunter_enrich, optional: --hunter; uses Hunter.io credits, never in --dry-run] → diff → export
 
 Workbooks and the review CSV of a run go to --outdir (default data/run/), so the step
 deliverables (v3, v3c, v3d, v5, v6) and the hand-edited data/review_einheiten.csv are never
@@ -29,7 +30,7 @@ S = ROOT / "scripts"
 DATA = ROOT / "data"
 STEPS = ["scrape_directories", "scrape_jacasa", "jacasa_union", "fetch_details", "merge", "add_sources",
          "light_enrich", "extract_contacts", "apply_review", "manual_fixes", "score", "merge_contacts",
-         "diff", "export"]
+         "hunter_enrich", "diff", "export"]
 FETCH_STEPS = ["scrape_directories", "scrape_jacasa", "fetch_details"]
 WEB_STEPS = ["light_enrich", "extract_contacts"]
 
@@ -43,12 +44,16 @@ def main():
     ap.add_argument("--contacts", type=Path, default=None,
                     help="optional hand-updated contacts workbook (e.g. data/heidi_contacts_v10.xlsx); "
                          "without it merge_contacts is skipped")
+    ap.add_argument("--hunter", action="store_true",
+                    help="run hunter_enrich (Hunter.io, max 25 domain searches + 50 verifications; "
+                         "key from .env; skipped in --dry-run)")
     ap.add_argument("--diff-old", type=Path, default=None,
                     help="default: previous data/heidi_latest.xlsx, else data/heidi_merged_v3.xlsx")
     a = ap.parse_args()
     out = a.outdir
     out.mkdir(parents=True, exist_ok=True)
-    skip = set(a.skip) | (set(FETCH_STEPS) if a.dry_run else set()) | (set() if a.contacts else {"merge_contacts"})
+    skip = set(a.skip) | (set(FETCH_STEPS) if a.dry_run else set()) | (set() if a.contacts else {"merge_contacts"}) \
+        | (set() if a.hunter and not a.dry_run else {"hunter_enrich"})
     latest = DATA / "heidi_latest.xlsx"
     diff_old = a.diff_old or (latest if latest.exists() else DATA / "heidi_merged_v3.xlsx")
     if diff_old == latest and latest.exists():
@@ -59,7 +64,7 @@ def main():
     paths = {"merge": out / "merged.xlsx", "add_sources": out / "merged_sources.xlsx",
              "light_enrich": out / "light.xlsx", "extract_contacts": out / "contacts.xlsx",
              "apply_review": out / "reviewed.xlsx", "manual_fixes": out / "fixed.xlsx",
-             "merge_contacts": out / "scored_contacts.xlsx",
+             "merge_contacts": out / "scored_contacts.xlsx", "hunter_enrich": out / "hunter.xlsx",
              "score": out / "scored.xlsx"}
     current = None  # workbook flowing through the chain
     py = sys.executable
@@ -99,6 +104,8 @@ def main():
             cmd = [py, S / "score.py", "--in", current, "--out", paths[step]]
         elif step == "merge_contacts":
             cmd = [py, S / "merge_contacts.py", "--base", current, "--contacts", a.contacts, "--out", paths[step]]
+        elif step == "hunter_enrich":
+            cmd = [py, S / "hunter_enrich.py", "--in", current, "--out", paths[step]]
         elif step == "diff":
             cmd = [py, S / "diff.py", diff_old, current, "--out", out / "diff_report.md"]
         else:  # export
@@ -117,7 +124,7 @@ def main():
     print("\n=== run_all Zusammenfassung ===")
     for s, st in status:
         print(f"  {s:20s} {st}")
-    if current and current in (paths["score"], paths["merge_contacts"]):
+    if current and current in (paths["score"], paths["merge_contacts"], paths["hunter_enrich"]):
         shutil.copy2(current, latest)
         print(f"Endergebnis kopiert: {current.relative_to(ROOT)} → {latest.relative_to(ROOT)}")
     else:
