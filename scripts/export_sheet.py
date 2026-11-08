@@ -165,7 +165,7 @@ def main():
     for a_, b in [
         ("Namensnormalisierung", "Kleinbuchstaben, Umlaute ausgeschrieben, Rechtsformen (GmbH, mbH, UG, KG, AG, "
                                  "e.K., GbR, OHG, & Co.) und Zusätze wie 'NL Berlin' entfernt, danach Leerzeichen, "
-                                 "Bindestriche und Satzzeichen entfernt ('HVIM' = 'hv-im')."),
+                                 "Bindestriche und Satzzeichen entfernt ('ABC HV' = 'abc-hv')."),
         ("Verzeichnis → Liste", "Dublette, wenn Domain ODER normalisierter Name + PLZ übereinstimmt; Zeilen ohne PLZ "
                                 "nur über den Namen (nicht bei rein generischen Namen)."),
         ("JACASA → Liste", "Name + PLZ; sonst alle Wörter ab 4 Buchstaben des kürzeren Namens im längeren, gleiche "

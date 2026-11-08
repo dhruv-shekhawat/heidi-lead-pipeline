@@ -43,7 +43,7 @@ DEFAULTS = [  # key, description, threshold, points
     ("website_fehler", "Website-Status Fehler", None, -2),
     ("prio_enterprise", "Enterprise ab Einheiten", 5000, None),
     ("enterprise_bundesweit", "'bundesweit' im Hinweis macht Enterprise nur ab Einheiten ≥ Schwelle "
-     "(seit 2026-11-08; vorher ohne Einheiten-Bedingung, betraf nur JURAG)", 5000, None),
+     "(seit 2026-11-08; vorher ohne Einheiten-Bedingung, betraf eine Zeile ohne Einheiten-Angabe)", 5000, None),
     ("prio_a", "Prio A ab Punkten (Standard 5 seit 2026-11-08, vorher 6: A hatte bei 6 nur 10 Zeilen)", 5, None),
     ("prio_b", "Prio B ab Punkten (darunter C)", 3, None),
 ]

@@ -2,7 +2,7 @@
 """Merge data/directory_clean.csv into the enriched workbook (default v2) -> data/heidi_merged_run.xlsx.
 
 Never writes data/heidi_merged_v3.xlsx (frozen deliverable; it was built by this script plus
-a one-off HVIM/hv-im merge, which the compact name normalisation now reproduces).
+a one-off merge of two spellings of one firm, which the compact name normalisation now reproduces).
 
 Usage:
   python3 scripts/merge.py [--in|--base data/heidi_enriched_v2.xlsx] [--out data/heidi_merged_run.xlsx]
@@ -18,7 +18,7 @@ Rules:
   (all Log rows) are matched on name alone, unless the name is only generic words.
 * Name key = common.norm_name: lowercase, umlauts folded, Rechtsform tokens and branch
   suffixes (NL/Niederlassung/trailing 'Berlin') removed, then spaces/hyphens/punctuation
-  removed, so 'HVIM …' == 'hv-im …'.
+  removed, so 'ABC HV …' == 'abc-hv …'.
 * Log rows with Bereich "ungeklärt" and no website are moved to Hausverwaltungen.
   Their PLZ comes from the v1 workbook (Log has no PLZ column). If one matches a
   directory row by name+PLZ, the two are merged into one row with Recherchetiefe
@@ -211,7 +211,7 @@ def main():
             consumed.add(di)
         quelle = hits[0]["Quelle"] if hits else None
         hinweis = rec.get("Grund / Hinweis") or ""
-        if d and d["Firma"] != rec["Firma"]:  # keep both spellings (e.g. HVIM / hv-im)
+        if d and d["Firma"] != rec["Firma"]:  # keep both spellings (e.g. 'ABC HV' / 'abc-hv')
             hinweis += f" | Verzeichnisname: '{d['Firma']}' ({d['Quelle']})"
         if d and d["Kategorie"]:
             hinweis += f" | Verzeichnis-Kategorie: {d['Kategorie']}"

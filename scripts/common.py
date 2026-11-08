@@ -221,7 +221,7 @@ def norm_tokens(s):
 
 
 def norm_name(s):
-    """Matching key: tokens joined without spaces/hyphens/punctuation ("hv-im" == "HVIM")."""
+    """Matching key: tokens joined without spaces/hyphens/punctuation ("abc-hv" == "ABC HV")."""
     return "".join(norm_tokens(s))
 
 
