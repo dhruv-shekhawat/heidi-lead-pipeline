@@ -10,6 +10,9 @@ Ansprechpartner the v10 value is copied when the v10 cell is non-empty (this del
 overwrites: v10 is the hand-checked source). Empty v10 cells never clear a value.
 "Allgemeine E-Mail" (generic company address, only in v10) is copied the same way; the column is
 created in the output if the base workbook lacks it.
+When v10 replaces an existing Ansprechpartner with a different person (other surname; degrees like
+"Dipl.-Kfm." ignored), Funktion is cleared (it
+described the replaced person; v10 has no Funktion column).
 Other columns, other tabs and the scoring are untouched (contact fields carry no points).
 Unmatched v10 rows are reported, not added.
 
@@ -17,6 +20,7 @@ Usage: python3 scripts/merge_contacts.py [--base …v9.xlsx] [--contacts …v10.
 Then:  python3 scripts/export_sheet.py --in data/heidi_scored_v11.xlsx --out data/heidi_final.xlsx
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +31,16 @@ from common import DATA, norm_domain, norm_name, plz_of  # noqa: E402
 
 HV = "Hausverwaltungen"
 COLS = ["E-Mail", "E-Mail-Status", "LinkedIn", "Ansprechpartner", "Allgemeine E-Mail"]
+
+
+TITLE_WORDS = {"dipl", "ing", "kfm", "kff", "dr", "prof", "herr", "herrn", "frau", "betriebsw", "oec", "jur", "med",
+               "mba", "fh", "rer", "pol", "nat"}
+
+
+def surname(name):
+    """Last name for the same-person test ("Dipl.-Kfm. Max Muster" == "Max Muster")."""
+    toks = [t for t in re.findall(r"[a-zäöüß]+", (name or "").lower()) if t not in TITLE_WORDS]
+    return toks[-1] if toks else ""
 
 
 def header_map(ws):
@@ -75,7 +89,7 @@ def main():
     if missing:
         print(f"Hinweis: Spalten fehlen in {a.contacts.name}: {missing}")
     changed = {c: 0 for c in COLS}
-    rows_changed, unmatched, n = set(), [], 0
+    rows_changed, unmatched, n, funktion_cleared = set(), [], 0, []
     for vals in src.iter_rows(min_row=2, values_only=True):
         rec = dict(zip(shdr, vals))
         if not rec.get("Firma"):
@@ -95,14 +109,22 @@ def main():
             continue
         for c in COLS:
             v = rec.get(c)
-            if v not in (None, "") and ws.cell(row, hm[c]).value != v:
+            old = ws.cell(row, hm[c]).value
+            if v not in (None, "") and old != v:
                 ws.cell(row, hm[c]).value = v
                 changed[c] += 1
                 rows_changed.add(row)
+                if c == "Ansprechpartner" and old not in (None, "") and surname(old) != surname(v) and "Funktion" in hm \
+                        and ws.cell(row, hm["Funktion"]).value not in (None, ""):
+                    ws.cell(row, hm["Funktion"]).value = None  # Funktion belonged to the replaced person
+                    funktion_cleared.append(f"{ws.cell(row, hm['Firma']).value}: {old} → {v}")
     wb.save(a.out)
     print(f"{a.contacts.name}: {n} Zeilen gelesen | Zeilen mit Änderung: {len(rows_changed)}")
     print("Geänderte Zellen je Spalte:", changed)
     print(f"Nicht zugeordnet (mit Kontaktdaten): {len(unmatched)} {unmatched[:20]}")
+    print(f"Funktion geleert (Ansprechpartner durch andere Person ersetzt): {len(funktion_cleared)}")
+    for x in funktion_cleared:
+        print("   ", x)
     print(f"Geschrieben: {a.out}")
 
 

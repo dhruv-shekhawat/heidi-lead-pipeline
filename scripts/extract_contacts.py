@@ -9,6 +9,9 @@ Columns created if missing: Ansprechpartner, Funktion, E-Mail, E-Mail-Status, Li
   vertreten durch, Vertretungsberechtigt…) followed by up to 4 capitalised words on the same
   line, stopping at a comma; occurrences that yield no person name (company names, register
   data) are skipped and the next occurrence is used.
+* Soft hyphens / zero-width characters are removed at fetch (common.fetch); academic degrees
+  (Dipl.-Ing., Dipl.-Kfm., …) before the name are skipped; "Geschäftsführende Gesellschafter" counts
+  as a title (Funktion "Geschäftsführender Gesellschafter").
 * E-Mail: first address on Impressum or Kontakt page on the company's own domain whose local
   part does not start with info/kontakt/mail/office/post/buero/verwaltung/service/hausverwaltung.
 * LinkedIn is created empty (no extraction rule defined).
@@ -32,12 +35,14 @@ import websites as site  # noqa: E402
 
 HV = "Hausverwaltungen"
 NEW_COLS = ["Ansprechpartner", "Funktion", "E-Mail", "E-Mail-Status", "LinkedIn", "Kontakt-Quelle"]
-KW = re.compile(r"(Geschäftsführerin|Geschäftsführer|Geschäftsführung|Inhaberin|Inhaber|"
-                r"vertreten durch|Vertretungsberechtigt\w*)", re.I)
+KW = re.compile(r"(Geschäftsführende[rn]?\s+Gesellschafter(?:in)?|Geschäftsführerin|Geschäftsführer|"
+                r"Geschäftsführung|Inhaberin|Inhaber|vertreten durch|Vertretungsberechtigt\w*)", re.I)
+# academic degrees before a name ("Dipl.-Ing., Dipl.-Kfm. Max Muster") are skipped, not taken as the name
+DEGREE = r"Dipl\.\s?-?\s?[A-ZÄÖÜa-zäöü]+\.?(?:-[A-ZÄÖÜa-zäöü]+\.?)*(?:\s?\(FH\))?|M\.\s?A\.|B\.\s?A\.|MBA|LL\.\s?M\.|M\.\s?Sc\.|B\.\s?Sc\."
 TITLE_SKIP = re.compile(r"^[\s:()\-–,]*(?:(?:die|den|der|des|durch|alleinige[nr]?|einzige[nr]?|"
                         r"Geschäftsführer(?:in)?|Geschäftsführung|Geschäftsführende[rn]?|GF|"
-                        r"Gesellschafter(?:in)?|Inhaber(?:in)?|"
-                        r"\(?in\)?|\(r\)|Herrn?|Frau)[\s:()\-–]*)*", re.I)
+                        r"Gesellschafter(?:in)?|Inhaber(?:in)?|" + DEGREE + r"|"
+                        r"\(?in\)?|\(r\)|Herrn?|Frau)[\s:()\-–,]*)*", re.I)
 WORD = r"(?:[A-ZÄÖÜ][\wäöüß'.\-]*|von|van|de|zu|der|den)"
 NAME_RX = re.compile(rf"{WORD}(?:[ \t]+{WORD}){{0,3}}")
 STOP = {"Amtsgericht", "Registergericht", "Handelsregister", "HRB", "HRA", "Sitz", "Tel", "Tel.", "Telefon",
@@ -85,8 +90,11 @@ def find_person(lines):
             continue
         title = m.group(1)
         if title.lower().startswith(("vertretungsberechtigt", "vertreten")):
-            t2 = re.search(r"Geschäftsführer(?:in)?|Inhaber(?:in)?|Gesellschafter(?:in)?", text[m.end():m.end() + 60])
+            t2 = re.search(r"Geschäftsführende[rn]?\s+Gesellschafter(?:in)?|Geschäftsführer(?:in)?|Inhaber(?:in)?|"
+                           r"Gesellschafter(?:in)?", text[m.end():m.end() + 60])
             title = t2.group(0) if t2 else title
+        if re.match(r"Geschäftsführende", title, re.I):  # "Geschäftsführende Gesellschafter: A und B"
+            title = "Geschäftsführende Gesellschafterin" if title.endswith("in") else "Geschäftsführender Gesellschafter"
         return name, title[0].upper() + title[1:]
     return None, None
 

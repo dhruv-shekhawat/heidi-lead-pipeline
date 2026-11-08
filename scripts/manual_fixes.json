@@ -1,11 +1,83 @@
 {
-  "_comment": "Einzelfall-Entscheidungen (2026-11-08). Welche Firma eine ID meint, steht in data/manual_fixes_keys.json (nicht versioniert). Ohne diese Datei werden die Einträge übersprungen.",
-  "einzelobjekt": [
-    {"id": "einzelobjekt_1", "grund": "Einheiten-Zahl ist eine Einzelobjekt-Referenz (single-property reference), nicht der Verwaltungsbestand"},
-    {"id": "einzelobjekt_2", "grund": "Einheiten-Zahl ist eine Einzelobjekt-Referenz (single-property reference), nicht der Verwaltungsbestand"}
-  ],
-  "zu_wohnungsunternehmen": [
-    {"id": "bestandshalter_1", "segment": "sonstige", "einheiten_art": "Eigenbestand",
-     "grund": "Bestandshalter, verwaltet eigenen Bestand (owner-managed stock)"}
-  ]
+ "_comment": "Einzelfall-Entscheidungen (2026-11-08). Welche Firma eine ID meint, steht in data/manual_fixes_keys.json (nicht versioniert). Ohne diese Datei werden die Einträge übersprungen. felder = per Stichprobe geprüfte Zellwerte (Werte nur in der Schlüsseldatei); ausschliessen = Zeile ins Log.",
+ "einzelobjekt": [
+  {
+   "id": "einzelobjekt_1",
+   "grund": "Einheiten-Zahl ist eine Einzelobjekt-Referenz (single-property reference), nicht der Verwaltungsbestand"
+  },
+  {
+   "id": "einzelobjekt_2",
+   "grund": "Einheiten-Zahl ist eine Einzelobjekt-Referenz (single-property reference), nicht der Verwaltungsbestand"
+  }
+ ],
+ "zu_wohnungsunternehmen": [
+  {
+   "id": "bestandshalter_1",
+   "segment": "sonstige",
+   "einheiten_art": "Eigenbestand",
+   "grund": "Bestandshalter, verwaltet eigenen Bestand (owner-managed stock)"
+  }
+ ],
+ "felder": [
+  {
+   "id": "korrektur_01",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_02",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_03",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_04",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_05",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_06",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_07",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_08",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_09",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "korrektur_10",
+   "stand": "2026-11-08",
+   "grund": "Stichprobenprüfung"
+  }
+ ],
+ "ausschliessen": [
+  {
+   "id": "ausschluss_1",
+   "grund": "Beherbergungsbetrieb (Gästehaus / Ferienvermietung), keine Hausverwaltung"
+  },
+  {
+   "id": "ausschluss_2",
+   "grund": "Beherbergungsbetrieb (Gästehaus / Ferienvermietung), keine Hausverwaltung"
+  }
+ ]
 }

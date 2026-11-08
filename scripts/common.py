@@ -130,11 +130,29 @@ def crawl_delay(url):
 
 
 # ------------------------------------------------------------------ fetch
-def fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
-    """Return cache entry dict (url, final_url, status, content_type, text).
+# soft hyphen + zero-width characters (and their HTML entities) split words like "Miet\u00adverwaltung"
+INVISIBLE_RX = re.compile(r"[\u00ad\u200b\u200c\u200d\u2060\ufeff]|&(?:shy|zwnj|zwj);|"
+                          r"&#(?:173|8203|8204|8205|8288|65279);|&#x(?:ad|200b|200c|200d|2060|feff);", re.I)
+
+
+def clean_text(s):
+    """Remove soft hyphens and zero-width characters (raw or as entities) before any parsing."""
+    return INVISIBLE_RX.sub("", s) if s else s
+
+
+def fetch(url, **kw):
+    """Return cache entry dict (url, final_url, status, content_type, text); text is cleaned of
+    soft hyphens / zero-width characters (the cache file keeps the original bytes).
 
     Raises Blocked on 403/429, FetchError otherwise. Uses cache first.
     """
+    entry = _fetch(url, **kw)
+    if entry.get("text"):
+        entry = dict(entry, text=clean_text(entry["text"]))
+    return entry
+
+
+def _fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
     entry = cache_read(url, data)
     if entry is not None and not (entry.get("transient") and not OFFLINE):
         entry["cached"] = True  # transient failures are only replayed offline; online they are retried
@@ -187,15 +205,71 @@ def fetch(url, *, method="GET", data=None, headers=None, delay=1.0, timeout=20):
 
 
 def html_lines(html):
-    """Visible text of an HTML page as a list of non-empty lines (line breaks kept)."""
+    """Visible text of an HTML page as a list of non-empty lines (line breaks kept).
+    For the line parsers (Impressum name, contact person): head/script/style/noscript/svg/template dropped."""
     from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(clean_text(html or ""), "lxml")
     for t in soup(["head", "script", "style", "noscript", "svg", "template"]):
         t.decompose()
     for br in soup.find_all("br"):
         br.replace_with("\n")
     text = soup.get_text("\n")
     return [ln for ln in (re.sub(r"[ \t\xa0]+", " ", x).strip() for x in text.split("\n")) if ln]
+
+
+TEXT_ATTRS = ("alt", "title", "aria-label")
+
+
+def _ld_strings(raw):
+    """Prose string values of a JSON-LD block (description, slogan, …), no JSON syntax or URLs."""
+    try:
+        stack, out = [json.loads(raw)], []
+    except ValueError:
+        out = []
+        for m in re.findall(r'"(?:description|slogan|text|headline)"\s*:\s*"((?:[^"\\]|\\.)*)"', raw):
+            try:
+                out.append(json.loads(f'"{m}"'))
+            except ValueError:
+                out.append(m)
+        return out
+    while stack:
+        x = stack.pop()
+        if isinstance(x, dict):
+            stack.extend(reversed(list(x.values())))  # pop() then yields document order
+        elif isinstance(x, list):
+            stack.extend(reversed(x))
+        elif isinstance(x, str) and " " in x.strip() and not re.match(r"https?:", x):
+            out.append(x)
+    return out
+
+
+def page_text(html):
+    """Full text of a page for keyword detection: everything html_lines keeps PLUS text that is
+    not rendered or only shown later – <template>/<noscript> content (slider slides, lazy
+    sections), JSON-LD descriptions, alt/title/aria-label and plain-text data-* attributes
+    (slider captions, counter targets such as data-to="1008")."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(clean_text(html or ""), "lxml")
+    extra = [v for t in soup.select('script[type="application/ld+json"]') for v in _ld_strings(t.get_text())]
+    for t in soup(["head", "script", "style", "svg"]):
+        t.decompose()
+    for tpl in soup("template"):  # bs4 excludes template strings from get_text(): re-parse them
+        extra.append(BeautifulSoup(tpl.decode_contents(), "lxml").get_text("\n"))
+        tpl.decompose()
+    for ns in soup("noscript"):  # noscript content is parsed as text: re-parse it
+        extra.append(BeautifulSoup(ns.get_text(" "), "lxml").get_text("\n"))
+        ns.decompose()
+    for el in soup.find_all(True):
+        for k, v in el.attrs.items():
+            if (k in TEXT_ATTRS or (k.startswith("data-") and k not in ("data-src", "data-srcset", "data-href",
+                                                                         "data-link", "data-url"))) \
+                    and isinstance(v, str) and 2 <= len(v) <= 300 and re.search(r"[A-Za-zÄÖÜäöü0-9]", v) \
+                    and not re.search(r"[{}<>]|https?:|/|\.(png|jpe?g|svg|webp)\b", v):
+                extra.append(v)
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    lines = soup.get_text("\n").split("\n") + extra
+    return "\n".join(ln for ln in (re.sub(r"[ \t\xa0]+", " ", x).strip() for x in lines) if ln)
 
 
 # ------------------------------------------------------------ normalisation

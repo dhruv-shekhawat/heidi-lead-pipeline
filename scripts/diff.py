@@ -5,7 +5,8 @@ Usage: python3 scripts/diff.py OLD.xlsx NEW.xlsx [--out data/diff_report.md]
 
 Rows are identified per tab by normalised Firma + PLZ (from Bezirk/PLZ); a NEW row whose key is
 not found is retried via its Name alt (catches rows renamed by light_enrich). Reports: new rows,
-removed rows, Prio changes, Einheiten / Einheiten Berlin changes, Ansprechpartner changes.
+removed rows, renames, Prio changes and changes in the TRACK columns (Einheiten, Verwaltungsart,
+Kundenportal, contact columns).
 If OLD has no Prio column, Prio is summarised instead of listed row by row.
 """
 import argparse
@@ -19,7 +20,8 @@ import openpyxl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import DATA, norm_name, plz_of  # noqa: E402
 
-TRACK = ["Einheiten", "Einheiten Berlin", "Ansprechpartner", "E-Mail", "E-Mail-Status", "Allgemeine E-Mail"]
+TRACK = ["Einheiten", "Einheiten Berlin", "Verwaltungsart", "Kundenportal", "Ansprechpartner", "Funktion", "E-Mail",
+         "E-Mail-Status", "Allgemeine E-Mail"]
 
 
 def rows_of(ws):

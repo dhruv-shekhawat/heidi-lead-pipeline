@@ -11,6 +11,13 @@ the keys file's "grund" (if any) is used for Log/Hinweis text. Missing keys file
 * zu_wohnungsunternehmen: the row moves from Hausverwaltungen to Wohnungsunternehmen (Segment as
   configured, Einheiten + Einheiten-Quelle kept, Einheiten (Art) set); fields the Wohnungsunternehmen
   tab has no column for (Ansprechpartner, Telefon, Straße, …) are kept in its Hinweis.
+* felder: verified cell corrections. The keys file holds {"set": {column: value}}; the cells are
+  overwritten (that is the point of a checked correction) and the old values are noted in Hinweis.
+  Matched on website first, firm keys as fallback. Firma: the old name goes to Name alt if empty.
+  Einheiten: {"Einheiten": n, "Einheiten-URL": url, "Einheiten-Satz": phrase} -> Einheiten-Quelle
+  "URL – „phrase“" and Recherchetiefe "A (Zahl geprüft)" (same format as apply_review).
+* ausschliessen: Typ "ausschließen", the row moves to the Log (Bereich "ausgeschlossen") with the
+  reason – the same helper light_enrich uses for its automatic exclusion rule.
 Idempotent: a firm already fixed is skipped. Run before score.py.
 
 Usage: python3 scripts/manual_fixes.py --in IN.xlsx --out OUT.xlsx [--config scripts/manual_fixes.json]
@@ -36,8 +43,12 @@ def header_map(ws):
     return {c.value: c.column for c in ws[1] if c.value}
 
 
-def find_row(ws, hm, spec):
-    """spec = entry from the keys file: firm_keys first, website as fallback."""
+def find_row(ws, hm, spec, website_first=False):
+    """spec = entry from the keys file: firm_keys first, website as fallback (or the other way round)."""
+    if website_first and spec.get("website"):
+        for r in range(2, ws.max_row + 1):
+            if norm_domain(ws.cell(r, hm["Website"]).value) == norm_domain(spec["website"]):
+                return r
     keys = set(spec.get("firm_keys") or [])
     for r in range(2, ws.max_row + 1):
         plz = plz_of(ws.cell(r, hm["Bezirk/PLZ"]).value)
@@ -62,6 +73,42 @@ def append_row(ws, values, hm):
         if k in hm and v not in (None, ""):
             ws.cell(r, hm[k]).value = v
     return r
+
+
+def move_to_log(wb, r, grund, quelle):
+    """Move Hausverwaltungen row r to the Log as Bereich "ausgeschlossen" (format of the existing rows)."""
+    hv, log = wb[HV], wb[LOG]
+    hm, lm = header_map(hv), header_map(log)
+    g = lambda k: hv.cell(r, hm[k]).value if k in hm else None  # noqa: E731
+    append_row(log, {"Bereich": "ausgeschlossen", "Firma": g("Firma"), "Name alt": g("Name alt"),
+                     "Website": g("Website"), "Typ": "ausschließen", "Grund / Hinweis": f"ausschließen: {grund}",
+                     "Quelle": quelle or (f"https://{norm_domain(g('Website'))}/" if g("Website") else None)}, lm)
+    hv.delete_rows(r)
+
+
+def set_fields(ws, hm, r, values, note):
+    """Overwrite cells with checked values; returns [(column, old, new)] for the cells that changed."""
+    values = dict(values)
+    url, satz = values.pop("Einheiten-URL", None), values.pop("Einheiten-Satz", None)
+    if "Einheiten" in values and url:
+        values["Einheiten-Quelle"] = f"{url} – „{satz}“" if satz else url
+        values["Recherchetiefe"] = "A (Zahl geprüft)"
+    changed = []
+    for k, v in values.items():
+        if k not in hm:
+            continue
+        old = ws.cell(r, hm[k]).value
+        if old != v:
+            if k == "Firma" and "Name alt" in hm and not ws.cell(r, hm["Name alt"]).value:
+                ws.cell(r, hm["Name alt"]).value = old
+            ws.cell(r, hm[k]).value = v
+            changed.append((k, old, v))
+    if changed:
+        h = ws.cell(r, hm["Hinweis"]).value
+        txt = f"{note}: " + "; ".join(f"{k} {o if o not in (None, '') else 'leer'} → {n}"
+                                       for k, o, n in changed if k not in ("Einheiten-Quelle", "Recherchetiefe"))
+        ws.cell(r, hm["Hinweis"]).value = f"{h} | {txt}" if h else txt
+    return changed
 
 
 def main():
@@ -122,6 +169,26 @@ def main():
         hv.delete_rows(r)
         print(f"zu_wohnungsunternehmen: {rec['Firma']} (Einheiten {rec.get('Einheiten')}) → {WU}, "
               f"Segment {vals['Segment']}")
+
+    for fx in cfg.get("felder", []):
+        s, grund = spec(fx)
+        r = find_row(hv, hm, s, website_first=True) if s.get("set") else None
+        if not r:
+            print(f"felder {fx.get('id')}: übersprungen (nicht gefunden oder keine Werte)")
+            continue
+        changed = set_fields(hv, hm, r, s["set"], f"Manuell korrigiert {fx.get('stand') or today} ({grund})")
+        print(f"felder {fx.get('id')}: {hv.cell(r, hm['Firma']).value} – "
+              + ("; ".join(f"{k}: {o!r} → {n!r}" for k, o, n in changed) or "bereits korrekt"))
+
+    for fx in cfg.get("ausschliessen", []):
+        s, grund = spec(fx)
+        r = find_row(hv, hm, s, website_first=True) if s else None
+        if not r:
+            print(f"ausschliessen {fx.get('id')}: übersprungen (nicht in Hausverwaltungen, evtl. schon ausgeschlossen)")
+            continue
+        firma = hv.cell(r, hm["Firma"]).value
+        move_to_log(wb, r, grund, s.get("quelle"))
+        print(f"ausschliessen: {firma} → Log ({grund})")
 
     wb.save(a.out)
     print(f"Geschrieben: {a.out.name}")

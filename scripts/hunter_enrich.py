@@ -7,7 +7,8 @@ Key   : HUNTER_API_KEY from the environment or from .env in the project root (ne
 
 Budget (Hunter free plan = 50 credits/month: Domain Search 1 credit, Email Verifier 0.5 credit):
   rows ordered Enterprise, A, B, then Punkte desc; at most --max-domains (25) distinct domains are
-  searched and at most --max-verifications (50) addresses verified. The free /v2/account call is used
+  searched and at most --max-verifications (50) addresses verified. Domains already in the Hunter
+  cache are reused even below the cut (no credits), so a changed ranking never drops earlier results. The free /v2/account call is used
   first to cap both by what is actually left this month.
 Per domain (Domain Search, limit 10):
   * new columns Hunter-Pattern and Hunter-Personen ("First Last (Position) email NN%; …")
@@ -230,7 +231,9 @@ def main():
             targets.append((r, dom, prio))
 
     left, reset = account(key)
-    sel = targets[:a.max_domains]
+    # cached domains below the cut stay in (no credits): a reshuffled ranking never drops earlier results
+    sel = targets[:a.max_domains] + [t for t in targets[a.max_domains:]
+                                     if is_cached("domain-search", {"domain": t[1], "limit": 10})]
     n_cached = sum(is_cached("domain-search", {"domain": d, "limit": 10}) for _, d, _ in sel)
     budget = min(int(left["searches"]), int(left["credits"]))  # only uncached searches cost credits
     print(f"Hunter-Kontingent vor dem Lauf: {left} (Reset {reset}) → {len(sel)} von {len(targets)} Kandidaten "

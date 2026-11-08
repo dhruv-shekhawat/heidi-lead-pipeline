@@ -11,6 +11,13 @@ Per row: fetch homepage + Impressum (1 s delay per host, 10 s timeout, robots.tx
   Immobilien, Berlin ignored) and Name alt is empty; otherwise noted in Hinweis.
 * Einheiten candidates -> review CSV only, never into the sheet.
 * Recherchetiefe -> "B+ (automatisch)" where Website-Status is ok.
+* Text: soft hyphens / zero-width characters are removed at fetch; keyword rules read the full page
+  text (common.page_text: incl. <template>/<noscript> slides, JSON-LD, alt/title and data-* text).
+* Kundenportal "ja" also for app-store links, app./portal./kunden. subdomains of the own domain
+  and a named "Mieter-App".
+* Exclusion: homepage <title> or Impressum names Ferienwohnung/Gästehaus/Pension/Hotel/Apartments
+  and neither names Hausverwaltung/Immobilienverwaltung -> Typ "ausschließen", row moved to the Log
+  (Bereich "ausgeschlossen") with the reason.
 
 Usage: python3 scripts/light_enrich.py [--in …] [--out …] [--review …] [--workers 8]
 """
@@ -57,6 +64,12 @@ NUM_RX = re.compile(r"(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)(?![\d]|[.,]\d)")
 NUM_BAD_AFTER = re.compile(r"^\s*(%|€|T€|TEUR|Euro|EUR|m²|qm|Mio|Mrd|Jahre|Jahren|Prozent)", re.I)
 STREET_BEFORE = re.compile(r"(str\.|straße|strasse|allee|platz|damm|ufer|ring|chaussee|weg)\s*$", re.I)
 PORTAL_PROVIDERS = ("casavi", "etg24", "idwell", "hausperfekt", "immoware24", "facilioo", "immocloud", "wowiport")
+APP_STORE = re.compile(r"^https?://(apps\.apple\.com|itunes\.apple\.com|play\.google\.com/store/apps)/", re.I)
+PORTAL_SUB = ("app", "portal", "kunden")  # app./portal./kunden. subdomain of the firm's own domain
+MIETER_APP = re.compile(r"\bMieter[-\s]?App\b", re.I)
+# exclusion: lodging business, not a property manager (homepage <title> + Impressum text)
+LODGING_RX = re.compile(r"Ferienwohnung(?:en)?|Gästehaus|\bPension\b|\bHotels?\b|\bApartments\b", re.I)
+HV_RX = re.compile(r"Hausverwaltung|Immobilienverwaltung", re.I)
 
 
 def header_map(ws):
@@ -117,7 +130,7 @@ def einheiten_candidates(text, plz_set):
 def analyse(row):
     """Network + parsing for one row (runs in a worker thread). Returns dict of findings."""
     res = {"r": row["r"], "status": None, "found": {}, "einheiten": [], "firma_cand": None,
-           "heidi": [], "imp_url": None}
+           "heidi": [], "imp_url": None, "exclude": None, "exclude_src": None}
     home, err = site.homepage(row["Website"])
     if not home:
         res["status"] = f"Fehler ({err})"
@@ -126,10 +139,20 @@ def analyse(row):
     imp, imp_url, _ = site.impressum(home)
     res["imp_url"] = imp_url if imp else None
     pages = [home] + ([imp] if imp else [])
-    html = "\n".join(p.get("text", "") for p in pages)
-    lines = [ln for p in pages for ln in common.html_lines(p.get("text", ""))]
-    text = "\n".join(lines)
+    html = "\n".join(p.get("text", "") for p in pages)  # fetch() already removed soft hyphens/zero-width
+    text = "\n".join(common.page_text(p.get("text", "")) for p in pages)  # incl. template/noscript/attributes
     all_links = [l for p in pages for l in site.links(p)]
+
+    title_tag = BeautifulSoup(home.get("text", ""), "lxml").title
+    title = re.sub(r"\s+", " ", title_tag.get_text(" ")).strip() if title_tag else ""
+    imp_text = common.page_text(imp["text"]) if imp else ""
+    hit = LODGING_RX.search(title) or LODGING_RX.search(imp_text)
+    if hit and not HV_RX.search(title + "\n" + imp_text):
+        where = "Startseiten-Titel" if LODGING_RX.search(title) else "Impressum"
+        res["exclude"] = (f"Beherbergung, keine Hausverwaltung: {where} nennt '{hit.group(0)}', "
+                          f"weder Titel noch Impressum nennen Hausverwaltung/Immobilienverwaltung "
+                          f"(Titel: {title[:80]})")
+        res["exclude_src"] = "; ".join([site.page_url(home)] + ([site.page_url(imp)] if imp else []))
 
     if imp:
         res["firma_cand"] = impressum_firma(common.html_lines(imp["text"]))
@@ -154,9 +177,12 @@ def analyse(row):
             continue
         provider = any(d in ud for d in PORTAL_DOM + PORTAL_PROVIDERS)
         on_site = ud == own or ud.endswith("." + own) or site.same_site(u, home)
-        if provider or (on_site and (PORTAL_RX.search(t) or PORTAL_RX.search(ul))):
+        portal_sub = on_site and ud.split(".", 1)[0] in PORTAL_SUB and ud.count(".") >= 2
+        if provider or APP_STORE.match(u) or portal_sub or (on_site and (PORTAL_RX.search(t) or PORTAL_RX.search(ul))):
             res["found"]["Kundenportal"] = "ja"
             break
+    if "Kundenportal" not in res["found"] and MIETER_APP.search(text):
+        res["found"]["Kundenportal"] = "ja"
 
     mess = [m for m in MESS if re.search(rf"\b{m}\b", text, re.I)]
     hrefs = " ".join(u for _, u in all_links)
@@ -177,7 +203,7 @@ def analyse(row):
 
     plz_set = {row["PLZ"]} | set(re.findall(r"\b(\d{5})\s+[A-ZÄÖÜ]", text))
     for p in pages:
-        t = " ".join(common.html_lines(p.get("text", "")))
+        t = common.page_text(p.get("text", "")).replace("\n", " ")
         for v, phrase in einheiten_candidates(t, plz_set):
             if v not in {x[0] for x in res["einheiten"]}:
                 res["einheiten"].append((v, phrase, site.page_url(p)))
@@ -219,7 +245,7 @@ def main():
         results = list(ex.map(analyse, rows))
 
     fills = {k: 0 for k in FIELDS + ["Firma (umbenannt)", "Hinweis (Impressum-Name ungeprüft)"]}
-    review, errors, heidi_hits = [], {}, []
+    review, errors, heidi_hits, excluded = [], {}, [], []
     for res in results:
         r = res["r"]
         cell(r, "Website-Status").value = res["status"]
@@ -227,6 +253,10 @@ def main():
             key = re.sub(r" on .*| bei .*", "", res["status"])
             errors[key] = errors.get(key, 0) + 1
             continue
+        if res["exclude"]:
+            cell(r, "Typ").value = "ausschließen"
+            excluded.append(res)
+            continue  # moved to the Log below, nothing else to fill
         for k, v in res["found"].items():
             if empty(cell(r, k).value) and v:
                 if k == "Verwaltungsart" and v == "unbekannt" and cell(r, k).value == "unbekannt":
@@ -251,6 +281,11 @@ def main():
             heidi_hits.append((cell(r, "Firma").value, res["heidi"]))
         cell(r, "Recherchetiefe").value = "B+ (automatisch)"
 
+    from manual_fixes import move_to_log
+    print(f"Ausgeschlossen (Beherbergung, → Log): {len(excluded)}")
+    for res in sorted(excluded, key=lambda x: -x["r"]):  # bottom-up: row numbers above stay valid
+        print(f"   {cell(res['r'], 'Firma').value} ({cell(res['r'], 'Website').value}): {res['exclude']}")
+        move_to_log(wb, res["r"], res["exclude"], res["exclude_src"])
     from add_sources import merge_same_name_rows  # renames can produce same-name duplicates
     print("Dubletten nach Umbenennung:")
     merge_same_name_rows(ws)
