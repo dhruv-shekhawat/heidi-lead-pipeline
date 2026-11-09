@@ -238,7 +238,8 @@ def main():
                                      if is_cached("domain-search", {"domain": t[1], "limit": 10})]
     if a.only:
         only = {norm_domain(d) for d in a.only}
-        sel = [t for t in sel if t[1] in only]
+        # named domains are looked up even below the cut; once cached they stay selected in later runs
+        sel = [t for t in targets if t[1] in only]
         print(f"--only: {len(sel)} von {len(only)} Domains in der Auswahl: {[t[1] for t in sel]}")
     n_cached = sum(is_cached("domain-search", {"domain": d, "limit": 10}) for _, d, _ in sel)
     budget = min(int(left["searches"]), int(left["credits"]))  # only uncached searches cost credits

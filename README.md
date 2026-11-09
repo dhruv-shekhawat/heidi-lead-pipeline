@@ -7,7 +7,7 @@ Collects Berlin property-management firms (Hausverwaltungen), enriches them from
 1. **Collect:** directory listings (Gelbe Seiten, 11880 page 1, JACASA CSV exports) are merged into a researched base list (Google Places, Apollo) and deduplicated by domain or name + PLZ.
 2. **Fetch:** every HTTP request goes through one cached fetcher. It respects robots.txt, stops on 403/429 and never bypasses a block. Reruns read the cache.
 3. **Rules:** keyword and regex parsers read each homepage and Impressum for Firma, Verwaltungsart, Einheiten, Software, Kundenportal, contact person and exclusion signals.
-4. **Agent (optional):** `claude-haiku-5-5` extracts the same fields as JSON, with an exact quote and URL per value. A second call verifies each value; rejected values are logged.
+4. **Agent (optional):** `claude-haiku-5-5` extracts the same fields as JSON, with an exact quote and URL per value. A second call verifies each value; rejected values are logged. Which source wins per field (agent or rules) was decided on a held-out sample, by a rule fixed before scoring.
 5. **Hand checks:** `scripts/manual_fixes.json` applies verified corrections last, so they survive every rerun. Hand-checked A rows are never overwritten by the agent.
 6. **Score:** points from editable weights (tab "Gewichte") give the Prio. An Einheiten figure of 5,000 or more that only the agent found does not count until it is checked.
 7. **Contacts:** optional hand-researched contacts and Hunter.io e-mail patterns, both cached.

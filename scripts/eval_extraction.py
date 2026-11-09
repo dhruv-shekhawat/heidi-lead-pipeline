@@ -15,7 +15,7 @@ Systems:
 * Ensemble  – agent (--ensemble version, default v2) for Firma, Verwaltungsart, Einheiten, regex rules for the
               other fields; where the agent has no confirmed value the regex value is kept (as in the pipeline).
 Comparison: Firma by normalised name ("und" = "&"); Verwaltungsart exact (empty = unbekannt); Einheiten as
-integer ("keine Angabe" = correct only if empty); Ansprechpartner by surname, any listed person counts; Software as a set of names (empty =
+integer ("keine Angabe" = correct only if empty; same for Firma "nicht angegeben"); Ansprechpartner by surname, any listed person counts; Software as a set of names (empty =
 keine); Kundenportal ja/nein (empty = nein); Typ_Verwalter ja/nein (empty = ja). A row without
 output (no cached Impressum, API error) counts as empty.
 Output: aggregate table (stdout and --md, no firm names) + per-row errors in --details
@@ -65,6 +65,8 @@ def softset(s):
 
 def correct(field, truth, pred):
     if field == "Firma":
+        if truth.strip().lower() in NO_FIGURE:  # Impressum names no firm: only "no value" is correct
+            return pred is None or str(pred).strip() == ""
         if truth == "Ferienhaus Berlin":
             return "ferienhausberlin" in common.norm_name(pred)
         und = lambda x: re.sub(r"\s+und\s+", " & ", str(x))  # noqa: E731 – "A und B" == "A & B"

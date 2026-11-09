@@ -20,7 +20,8 @@ Per row:
 Writing (confirmed values only):
 * A rows (Recherchetiefe A…, hand-checked or rule-approved): only empty cells ("unbekannt" counts
   as empty) are filled; a differing existing value is kept and recorded in "Agent-Abweichung".
-* other rows: the agent value replaces the regex value (old value -> "Agent-Abweichung"); a null
+* other rows: the agent value replaces the regex value (old value -> "Agent-Abweichung"), except for the
+  RULES_FIRST fields (Software, chosen on the holdout), where an existing rule value is kept; a null
   agent value keeps the regex value. Firma: replaced (old name -> Name alt) only if Name alt is
   empty and the names share a distinctive 4+ letter word (light_enrich's rule), otherwise only noted. Einheiten -> Einheiten-Quelle "URL – „quote“". Recherchetiefe -> "B+ (Agent)".
 * Typ_Verwalter "nein" -> Hinweis "Agent: kein Verwalter, prüfen (<reason>)"; never auto-excluded,
@@ -82,6 +83,13 @@ COLMAP = {"Firma": "Firma", "Verwaltungsart": "Verwaltungsart", "Einheiten": "Ei
           "Kundenportal": "Kundenportal", "Messdienst": "Messdienst", "Fernablesung": "Fernablesung erwähnt",
           "VDIV": "VDIV-Logo", "Ansprechpartner": "Ansprechpartner", "Funktion": "Funktion"}
 FIELDS = list(COLMAP) + ["Typ_Verwalter"]
+# Source per field, decided on the 25-row holdout by the rule pre-registered in doc/eval.md (2026-11-09):
+# the agent wins a field only with >= 2 fewer errors than the rules. Rules won Software (3 vs 2 errors) and
+# Typ_Verwalter (0 vs 0). For a RULES_FIRST field the agent only fills an empty cell; an existing rule value is
+# kept and the agent value goes to Agent-Abweichung. Typ_Verwalter has no cell: exclusion stays with the rules
+# (lodging rule), the agent's "nein" stays a review flag. Unscored fields (Funktion, Messdienst, Fernablesung,
+# VDIV) keep the agent-first behaviour.
+RULES_FIRST = {"Software"}
 
 
 def _claim(value_schema, extra=None):
@@ -318,7 +326,8 @@ def main():
         results = list(ex.map(lambda row: run_row(row, a.prompt), rows))
 
     stats = {"verarbeitet": 0, "ohne Seiten": 0, "Fehler": 0, "bestätigt": 0, "verworfen": 0, "geschrieben": 0,
-             "Abweichung (A behalten)": 0, "Regex ersetzt": 0, "kein Verwalter": 0, "Agent-Zahl, prüfen": 0}
+             "Abweichung (A behalten)": 0, "Regex ersetzt": 0, "kein Verwalter": 0, "Agent-Zahl, prüfen": 0,
+             "Abweichung (Regel behalten)": 0}
     report, flagged, errors, marked = [], [], {}, []
     log_rows = []
     for res in results:
@@ -369,7 +378,7 @@ def main():
                     # Name alt taken, or no shared distinctive word (Impressum of another company): keep Firma
                     notes.append(f"Firma laut Impressum (Agent), prüfen: {val}")
                     action = "notiert"
-                elif empty(before) or not is_a:
+                elif empty(before) or (not is_a and f not in RULES_FIRST):
                     if not empty(before):
                         notes.append(f"{col}: Regex {before} → Agent {val}")
                         stats["Regex ersetzt"] += 1
@@ -396,7 +405,7 @@ def main():
                     action = "geschrieben"
                 else:
                     notes.append(f"{col}: Tabelle {before} | Agent {val}")
-                    stats["Abweichung (A behalten)"] += 1
+                    stats["Abweichung (A behalten)" if is_a else "Abweichung (Regel behalten)"] += 1
                     action = "Abweichung"
             report.append({"Firma": row["Firma"], "Website": row["Website"], "Recherchetiefe": row["tier"],
                            "Feld": f, "Tabelle/Regex": before, "Agent": (c or {}).get("value"),

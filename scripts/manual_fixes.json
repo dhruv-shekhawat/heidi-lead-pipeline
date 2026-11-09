@@ -68,6 +68,21 @@
    "id": "korrektur_10",
    "stand": "2026-11-08",
    "grund": "Stichprobenprüfung"
+  },
+  {
+   "id": "holdout_01",
+   "stand": "2026-11-09",
+   "grund": "Holdout-Prüfung (Einheiten der Agent-Zahl-Zeilen)"
+  },
+  {
+   "id": "holdout_02",
+   "stand": "2026-11-09",
+   "grund": "Holdout-Prüfung (Einheiten der Agent-Zahl-Zeilen)"
+  },
+  {
+   "id": "holdout_03",
+   "stand": "2026-11-09",
+   "grund": "Holdout-Prüfung (Einheiten der Agent-Zahl-Zeilen)"
   }
  ],
  "ausschliessen": [

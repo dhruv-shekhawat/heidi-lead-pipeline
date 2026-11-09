@@ -103,3 +103,62 @@ The sheet is ordered by a shuffled number, so the checker can't see the group. I
 - **Small cell counts.** With about 10–25 checked cells per field, a 2-cell margin is a coarse rule. That is the reason a tie goes to the rules, which can be audited line by line.
 - **Agent-Zahl rows.** A holdout Einheiten truth for an "Agent-Zahl, prüfen" row goes into `manual_fixes.json` like any hand check. That removes the marker, and the figure then counts for Prio.
 
+
+## Holdout result (scored 2026-11-09)
+
+**Truth:** the checker filled in the 25 rows as free text (`doc/holdout_truth.md`, untracked) rather than in the blind sheet. `scripts/holdout_normalize.py` turns it into the eval format (`doc/holdout_sample.md`, untracked) by fixed rules, without re-judging any cell:
+
+- Remarks in brackets are dropped.
+- "beides + Gewerbe" → beides.
+- "nicht angegeben" → `keine Angabe` (Einheiten), `keine` (Software) or `unbekannt` (Verwaltungsart).
+- Einheiten = the number before the quote.
+- Several contact persons separated by "," or ";" all count.
+
+Two rows could not be checked (certificate errors on the site), so 23 rows were scored. Command: `python3 scripts/eval_extraction.py --sample doc/holdout_sample.md --prompts v2 --table v16=data/heidi_scored_v16.xlsx`. The v16 column was added for information; it doesn't change the other columns. Everything came from cache, with no API calls.
+
+### Tuning sample vs holdout (errors / checked cells)
+
+| Feld | Tuning: geprüft | Tuning: Regex | Tuning: Agent v2 | Holdout: geprüft | Holdout: Regex | Holdout: Agent v2 | Abstand (Regex − Agent) | Quelle |
+|---|---|---|---|---|---|---|---|---|
+| Firma | 30 | 10 | 5 | 23 | 12 | 4 | 8 | **Agent** |
+| Verwaltungsart | 29 | 7 | 5 | 23 | 11 | 6 | 5 | **Agent** |
+| Einheiten | 16 | 9 | 4 | 23 | 6 | 1 | 5 | **Agent** |
+| Ansprechpartner | 26 | 3 | 4 | 23 | 5 | 2 | 3 | **Agent** |
+| Software | 13 | 3 | 5 | 23 | 3 | 2 | 1 | **Regeln** (≤ 1) |
+| Kundenportal | 18 | 1 | 2 | 23 | 4 | 2 | 2 | **Agent** |
+| Typ_Verwalter | 30 | 0 | 1 | 23 | 0 | 0 | 0 | **Regeln** (Gleichstand) |
+| **gesamt** | 162 | 33 (20.4%) | 26 (16.0%) | 161 | 41 (25.5%) | 17 (10.6%) | | |
+
+**Other systems on the holdout:**
+
+| System | Errors |
+|---|---|
+| Ensemble (in-sample split: agent for Firma, VA, Einheiten) | 23 / 161 (14.3%) |
+| Table v16 (the workbook before any holdout fix) | 20 / 161 (12.4%) |
+
+For comparison, on the tuning sample the ensemble made 19 / 162 (11.7%) errors.
+
+**Reading the results:**
+
+- **The agent did better on the holdout than on the tuning rows** (10.6% vs 16.0%), and the rules did worse (25.5% vs 20.4%).
+- **The in-sample split was wrong for two fields.** It had given the rules Ansprechpartner and Kundenportal, but on the holdout the rules lose both. Because of that, the ensemble (23 errors) does worse than the agent alone (17). The pre-registered rule replaces that split.
+- **Most rule errors are missing values:**
+  - Firma: no Impressum line with a Rechtsform found (9 of 12); the other 3 took a wrong line.
+  - Verwaltungsart: only WEG detected where the site offers both (7 of 11).
+  - Einheiten: figures not stated in the rule's exact sentence pattern (6).
+- **The table (v16) has 8 Firma errors where the agent had 4.** The table keeps the list name wherever the rename guard blocks the agent's Impressum name, i.e. when the names share no distinctive word or `Name alt` is already filled. This guard was not part of the pre-registered decision and is unchanged.
+
+**What follows (applied in v17):**
+
+- **Software stays with the rules.** On rows that aren't hand-checked, the agent now only fills an empty Software cell (`llm_enrich.RULES_FIRST`). In the current data no row has a rule value the agent disagrees with, so this changes no cell.
+- **The other fields stay agent-first,** as before.
+- **Typ_Verwalter stays with the rules:** only the lodging rule excludes rows, and the agent's "nein" remains a review flag.
+- **Agent-Zahl rows:** the holdout Einheiten of the three "Agent-Zahl, prüfen" rows went into `manual_fixes.json`: 10,000, 25,000 (the agent's cached page said 20,000+; the site has since changed) and 18,500. The marker is gone and all three are Enterprise again. All three figures include units outside Berlin. The fourth marked row was in the tuning sample with Einheiten unchecked, so it stays marked.
+
+**Deviations and sensitivity:**
+
+- **Firma "nicht angegeben" is new.** One row's Impressum names no firm. Like Einheiten "keine Angabe", it counts as correct only when the system returns no Firma. This rule was added after pre-registration. Skipping that cell gives Regex 12 / 22 and Agent 4 / 22, so the decision is the same.
+- **Software for one row is the firm's own platform and app**, named after the firm. Both systems miss it. Counting the cell as `keine` gives Regex 2 and Agent 1, a margin of 1, so Software stays with the rules either way.
+- **One cell differs because the site changed after it was cached:** an Einheiten figure went from 20,000+ to 25,000+. The truth reflects the site on 2026-11-09; the systems read the cached pages.
+- **Typ_Verwalter is "ja" on all 23 holdout rows,** so the agent's "nein" detection is not tested by the holdout.
+- **Selection bias, as pre-registered:** 9 of the 23 scored rows were chosen because agent values changed their Prio.
