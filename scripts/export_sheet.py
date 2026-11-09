@@ -277,6 +277,11 @@ def main():
                   "Agent-Werte in 'Agent-Abweichung'. Hinweis 'Agent: kein Verwalter, prüfen' = Verdacht, nicht "
                   "ausgeschlossen. Kein temperature=0 möglich (Modell lehnt es ab); reproduzierbar über den "
                   "Antwort-Cache."),
+        ("Firma (Umbenennung)", "Der Agent ersetzt eine Firma nur, wenn 'Name alt' leer ist und alter und neuer Name "
+                                "ein unterscheidendes Wort (ab 4 Buchstaben) teilen. Das verhindert Umbenennungen auf "
+                                "fremde Website-Betreiber, lässt aber auch richtige Impressum-Namen weg (Holdout "
+                                "2026-11-09: Tabelle 8 Firma-Fehler von 23, Agent allein 4); der Agent-Name steht dann "
+                                "in 'Agent-Abweichung'. Bewusst beibehalten."),
         ("Dubletten", "Lockere Namensähnlichkeit bei anderer PLZ nicht zusammengeführt (Hinweis "
                       "'mögliches Duplikat')."),
     ]

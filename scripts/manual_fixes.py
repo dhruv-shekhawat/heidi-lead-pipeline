@@ -14,7 +14,9 @@ the keys file's "grund" (if any) is used for Log/Hinweis text. Missing keys file
 * felder: verified cell corrections. The keys file holds {"set": {column: value}}; the cells are
   overwritten (that is the point of a checked correction) and the old values are noted in Hinweis.
   Matched on website first, firm keys as fallback. Firma: the old name goes to Name alt if empty.
-  Einheiten: {"Einheiten": n, "Einheiten-URL": url, "Einheiten-Satz": phrase} -> Einheiten-Quelle
+  Einheiten: {"Einheiten": n, "Einheiten-URL": url, "Einheiten-Satz": phrase} -> Einheiten-Quelle;
+  {"Einheiten Berlin": n, "Einheiten-Berlin-URL": url, "Einheiten-Berlin-Satz": phrase} appends
+  "Berlin: url – „phrase“" to Einheiten-Quelle (score.py uses Einheiten Berlin first)
   "URL – „phrase“" and Recherchetiefe "A (Zahl geprüft)" (same format as apply_review).
 * ausschliessen: Typ "ausschließen", the row moves to the Log (Bereich "ausgeschlossen") with the
   reason – the same helper light_enrich uses for its automatic exclusion rule.
@@ -93,6 +95,12 @@ def set_fields(ws, hm, r, values, note):
     if "Einheiten" in values and url:
         values["Einheiten-Quelle"] = f"{url} – „{satz}“" if satz else url
         values["Recherchetiefe"] = "A (Zahl geprüft)"
+    burl, bsatz = values.pop("Einheiten-Berlin-URL", None), values.pop("Einheiten-Berlin-Satz", None)
+    if "Einheiten Berlin" in values and burl:  # Berlin figure: its source is appended to Einheiten-Quelle
+        base = values.get("Einheiten-Quelle", ws.cell(r, hm["Einheiten-Quelle"]).value if "Einheiten-Quelle" in hm
+                          else None)
+        berlin = f"Berlin: {burl} – „{bsatz}“" if bsatz else f"Berlin: {burl}"
+        values["Einheiten-Quelle"] = f"{base} | {berlin}" if base and berlin not in base else (base or berlin)
     changed = []
     for k, v in values.items():
         if k not in hm:

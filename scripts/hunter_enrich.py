@@ -200,6 +200,9 @@ def main():
     ap.add_argument("--max-domains", type=int, default=25)
     ap.add_argument("--max-verifications", type=int, default=50)
     ap.add_argument("--plan", action="store_true")
+    ap.add_argument("--max-credits", type=float, default=None,
+                    help="hard cap for this run: searches counted at 1 credit each; verifications only from what "
+                         "is left after re-reading /v2/account")
     ap.add_argument("--only", nargs="+", default=None, metavar="DOMAIN",
                     help="restrict the run to these domains (still subject to the Prio filter and budget)")
     a = ap.parse_args()
@@ -243,6 +246,9 @@ def main():
         print(f"--only: {len(sel)} von {len(only)} Domains in der Auswahl: {[t[1] for t in sel]}")
     n_cached = sum(is_cached("domain-search", {"domain": d, "limit": 10}) for _, d, _ in sel)
     budget = min(int(left["searches"]), int(left["credits"]))  # only uncached searches cost credits
+    start_credits = left["credits"]
+    if a.max_credits is not None:
+        budget = min(budget, int(a.max_credits))
     print(f"Hunter-Kontingent vor dem Lauf: {left} (Reset {reset}) → {len(sel)} von {len(targets)} Kandidaten "
           f"(max {a.max_domains}), davon {n_cached} aus Cache, {len(sel) - n_cached} neu (Budget {budget})")
     if a.plan:
@@ -298,6 +304,10 @@ def main():
                 written.append((r, addr, prio))
         left, _ = account(key)
         vbudget = min(int(left["verifications"]), int(left["credits"] * 2))
+        if a.max_credits is not None and not OFFLINE:
+            used = start_credits - left["credits"]
+            vbudget = min(vbudget, max(0, int((a.max_credits - used) * 2)))
+            print(f"Credit-Deckel {a.max_credits}: bisher {used} verbraucht → {vbudget} Verifizierungen möglich")
         n_ver = min(a.max_verifications, len(written))
         for r, addr, prio in written[:n_ver]:
             if not is_cached("email-verifier", {"email": addr}):

@@ -83,6 +83,11 @@
    "id": "holdout_03",
    "stand": "2026-11-09",
    "grund": "Holdout-Prüfung (Einheiten der Agent-Zahl-Zeilen)"
+  },
+  {
+   "id": "holdout_04",
+   "stand": "2026-11-09",
+   "grund": "Holdout-Prüfung (Berlin-Zahl, Entscheidung 2026-11-09)"
   }
  ],
  "ausschliessen": [
